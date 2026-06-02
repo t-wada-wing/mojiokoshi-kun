@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import AnalysisModal from '../components/AnalysisModal';
+import AnalysisModal, { type AnalysisModalMode } from '../components/AnalysisModal';
 import BlockingProgressOverlay from '../components/BlockingProgressOverlay';
 import { MAX_BULK_ANALYZE, SCHOOLS } from '../constants';
 import {
@@ -22,6 +22,7 @@ import {
 const PASSCODE_STORAGE_KEY = 'transcribe-passcode';
 
 type DownloadTab = 'ai' | 'admin';
+type AiActionTab = 'download' | 'analyze' | 'view';
 
 type BatchProgressState = {
   active: boolean;
@@ -127,6 +128,7 @@ export default function DownloadPage() {
   const [batchProgress, setBatchProgress] = useState<BatchProgressState>(IDLE_BATCH_PROGRESS);
   const batchBusy = batchProgress.active;
   const [activeTab, setActiveTab] = useState<DownloadTab>('ai');
+  const [aiActionTab, setAiActionTab] = useState<AiActionTab>('download');
   const [adminLoaded, setAdminLoaded] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
   const [analysisModal, setAnalysisModal] = useState<{
@@ -135,6 +137,7 @@ export default function DownloadPage() {
     content: string;
     loading: boolean;
     cached: boolean;
+    mode: AnalysisModalMode;
     recordId: number | null;
     downloadName: string;
   }>({
@@ -143,6 +146,7 @@ export default function DownloadPage() {
     content: '',
     loading: false,
     cached: false,
+    mode: 'view',
     recordId: null,
     downloadName: '',
   });
@@ -175,6 +179,14 @@ export default function DownloadPage() {
     () => records.filter((record) => record.analyzed_at),
     [records],
   );
+  const analyzedRecordsSorted = useMemo(
+    () =>
+      [...analyzedRecords].sort(
+        (a, b) => dateTimeValue(b.analyzed_at) - dateTimeValue(a.analyzed_at),
+      ),
+    [analyzedRecords],
+  );
+  const latestAnalyzed = useMemo(() => analyzedRecordsSorted.slice(0, 5), [analyzedRecordsSorted]);
   const selectedAnalyzedRecords = useMemo(
     () => selectedRecords.filter((record) => record.analyzed_at),
     [selectedRecords],
@@ -406,38 +418,96 @@ export default function DownloadPage() {
 
   const analysisFilename = (filename: string) => filename.replace(/\.txt$/i, '_分析.txt');
 
-  const openAnalysisModal = (record: RecordItem, loading: boolean, content = '', cached = false) => {
+  const openAnalysisModal = (
+    record: RecordItem,
+    options: {
+      loading: boolean;
+      mode: AnalysisModalMode;
+      content?: string;
+      cached?: boolean;
+    },
+  ) => {
+    const title =
+      options.mode === 'view'
+        ? `分析結果: ${record.student_name}`
+        : `AI分析中: ${record.student_name}`;
     setAnalysisModal({
       open: true,
-      title: `AI分析: ${record.student_name}`,
-      content,
-      loading,
-      cached,
+      title,
+      content: options.content ?? '',
+      loading: options.loading,
+      cached: options.cached ?? false,
+      mode: options.mode,
       recordId: record.id,
       downloadName: analysisFilename(record.filename),
     });
   };
 
-  const handleAnalyzeRecord = async (record: RecordItem, force = false) => {
+  const refreshAfterAnalysis = async () => {
+    if (school) {
+      await loadRecords(school);
+    }
+    if (adminLoaded) {
+      void refreshAdminPanels(passcode);
+    }
+  };
+
+  const handleViewAnalysis = async (record: RecordItem) => {
     if (batchBusy) return;
-    openAnalysisModal(record, true);
+    openAnalysisModal(record, { loading: true, mode: 'view' });
     try {
-      const result = await analyzeRecord(passcode, record.id, { force });
+      const result = await analyzeRecord(passcode, record.id);
       setAnalysisModal((current) => ({
         ...current,
+        title: `分析結果: ${record.student_name}`,
         content: result.analysis,
         loading: false,
         cached: result.cached,
+        mode: 'view',
       }));
-      if (school) {
-        await loadRecords(school);
-      }
-      if (adminLoaded) {
-        void refreshAdminPanels(passcode);
-      }
+    } catch (error) {
+      setAnalysisModal((current) => ({ ...current, open: false, loading: false }));
+      setActionMessage(error instanceof Error ? error.message : '分析結果の取得に失敗しました');
+    }
+  };
+
+  const handleRunAnalysis = async (record: RecordItem) => {
+    if (batchBusy) return;
+    openAnalysisModal(record, { loading: true, mode: 'run' });
+    try {
+      const result = await analyzeRecord(passcode, record.id);
+      setAnalysisModal((current) => ({
+        ...current,
+        title: `分析結果: ${record.student_name}`,
+        content: result.analysis,
+        loading: false,
+        cached: result.cached,
+        mode: 'view',
+      }));
+      await refreshAfterAnalysis();
     } catch (error) {
       setAnalysisModal((current) => ({ ...current, open: false, loading: false }));
       setActionMessage(error instanceof Error ? error.message : '分析に失敗しました');
+    }
+  };
+
+  const handleReanalyze = async (record: RecordItem) => {
+    if (batchBusy) return;
+    openAnalysisModal(record, { loading: true, mode: 'run' });
+    try {
+      const result = await analyzeRecord(passcode, record.id, { force: true });
+      setAnalysisModal((current) => ({
+        ...current,
+        title: `分析結果: ${record.student_name}`,
+        content: result.analysis,
+        loading: false,
+        cached: result.cached,
+        mode: 'view',
+      }));
+      await refreshAfterAnalysis();
+    } catch (error) {
+      setAnalysisModal((current) => ({ ...current, open: false, loading: false }));
+      setActionMessage(error instanceof Error ? error.message : '再分析に失敗しました');
     }
   };
 
@@ -469,8 +539,11 @@ export default function DownloadPage() {
         void refreshAdminPanels(passcode);
       }
       setActionMessage(
-        `一括分析が完了しました（成功 ${success}件 / 失敗 ${failed}件）。1回最大 ${MAX_BULK_ANALYZE} 件まで実行できます。`,
+        `一括分析が完了しました（成功 ${success}件 / 失敗 ${failed}件）。「分析結果を見る」タブから確認できます。1回最大 ${MAX_BULK_ANALYZE} 件まで実行できます。`,
       );
+      if (success > 0) {
+        setAiActionTab('view');
+      }
       updateBatch('一括分析が完了しました', 100);
     } finally {
       endBatch();
@@ -644,7 +717,14 @@ export default function DownloadPage() {
         <div id="download-panel-ai" role="tabpanel" aria-labelledby="download-tab-ai">
       <label>
         スクール
-        <select value={school} disabled={batchBusy || loading} onChange={(e) => loadRecords(e.target.value)}>
+        <select
+          value={school}
+          disabled={batchBusy || loading}
+          onChange={(e) => {
+            setAiActionTab('download');
+            void loadRecords(e.target.value);
+          }}
+        >
           <option value="">選択してください</option>
           {SCHOOLS.map((item) => (
             <option key={item} value={item}>
@@ -655,64 +735,201 @@ export default function DownloadPage() {
       </label>
 
       {school ? (
-        <div className="toolbar download-toolbar">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void handleDownloadSchool()}
-            disabled={batchBusy}
-          >
-            このスクールを一括ダウンロード (zip)
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => void handleDownloadSelected()}
-            disabled={batchBusy || selectedRecords.length === 0}
-          >
-            選択したファイルをダウンロード (zip)
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void handleDownloadAnalysisSchool()}
-            disabled={batchBusy || analyzedRecords.length === 0}
-          >
-            このスクールの分析結果をダウンロード (zip)
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void handleDownloadAnalysisSelected()}
-            disabled={batchBusy || selectedAnalyzedRecords.length === 0}
-          >
-            選択した分析結果をダウンロード (zip)
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => void handleBulkAnalyzeSelected()}
-            disabled={batchBusy || selectedUnanalyzedRecords.length === 0}
-          >
-            選択したファイルをAI分析
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void handleBulkAnalyzeSchool()}
-            disabled={batchBusy || unanalyzedRecords.length === 0}
-          >
-            このスクールをまとめてAI分析
-          </button>
-        </div>
-      ) : null}
+        <>
+          <div className="ai-action-tabs" role="tablist" aria-label="音声の操作">
+            <button
+              type="button"
+              role="tab"
+              id="ai-action-tab-download"
+              aria-selected={aiActionTab === 'download'}
+              aria-controls="ai-action-panel-download"
+              className={`ai-action-tab${aiActionTab === 'download' ? ' active' : ''}`}
+              disabled={batchBusy}
+              onClick={() => setAiActionTab('download')}
+            >
+              音声ファイルをダウンロード
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="ai-action-tab-analyze"
+              aria-selected={aiActionTab === 'analyze'}
+              aria-controls="ai-action-panel-analyze"
+              className={`ai-action-tab${aiActionTab === 'analyze' ? ' active' : ''}`}
+              disabled={batchBusy}
+              onClick={() => setAiActionTab('analyze')}
+            >
+              音声をAI分析
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="ai-action-tab-view"
+              aria-selected={aiActionTab === 'view'}
+              aria-controls="ai-action-panel-view"
+              className={`ai-action-tab${aiActionTab === 'view' ? ' active' : ''}`}
+              disabled={batchBusy}
+              onClick={() => setAiActionTab('view')}
+            >
+              分析結果を見る
+            </button>
+          </div>
 
-      {school ? (
-        <p className="field-hint">
-          1回の一括AI分析は最大 {MAX_BULK_ANALYZE} 件までです（未分析 {unanalyzedRecords.length} 件
-          {selectedRecords.length > 0 ? ` / 選択中の未分析 ${selectedUnanalyzedRecords.length} 件` : ''}）。
-          分析済みの選択はスキップされます。分析結果は zip（*_分析.txt）または各件の「AI分析」から txt で保存できます。未分析は zip に含まれません。
-        </p>
+          {aiActionTab === 'download' ? (
+            <div
+              id="ai-action-panel-download"
+              role="tabpanel"
+              aria-labelledby="ai-action-tab-download"
+              className="ai-action-panel"
+            >
+              <div className="toolbar download-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleDownloadSchool()}
+                  disabled={batchBusy}
+                >
+                  このスクールを一括ダウンロード (zip)
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void handleDownloadSelected()}
+                  disabled={batchBusy || selectedRecords.length === 0}
+                >
+                  選択したファイルをダウンロード (zip)
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleDownloadAnalysisSchool()}
+                  disabled={batchBusy || analyzedRecords.length === 0}
+                >
+                  このスクールの分析結果をダウンロード (zip)
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleDownloadAnalysisSelected()}
+                  disabled={batchBusy || selectedAnalyzedRecords.length === 0}
+                >
+                  選択した分析結果をダウンロード (zip)
+                </button>
+              </div>
+              <p className="field-hint">
+                文字起こし txt と分析結果（*_分析.txt）を zip で取得できます。分析結果 zip
+                は分析済みのみ含みます（未分析は含まれません）。
+              </p>
+            </div>
+          ) : null}
+
+          {aiActionTab === 'analyze' ? (
+            <div
+              id="ai-action-panel-analyze"
+              role="tabpanel"
+              aria-labelledby="ai-action-tab-analyze"
+              className="ai-action-panel"
+            >
+              <div className="toolbar download-toolbar">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void handleBulkAnalyzeSelected()}
+                  disabled={batchBusy || selectedUnanalyzedRecords.length === 0}
+                >
+                  選択したファイルをAI分析
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleBulkAnalyzeSchool()}
+                  disabled={batchBusy || unanalyzedRecords.length === 0}
+                >
+                  このスクールをまとめてAI分析
+                </button>
+              </div>
+              <p className="field-hint">
+                1回の一括AI分析は最大 {MAX_BULK_ANALYZE} 件までです（未分析 {unanalyzedRecords.length}{' '}
+                件
+                {selectedRecords.length > 0
+                  ? ` / 選択中の未分析 ${selectedUnanalyzedRecords.length} 件`
+                  : ''}
+                ）。分析済みの選択はスキップされます。完了後は「分析結果を見る」タブで確認できます。
+              </p>
+            </div>
+          ) : null}
+
+          {aiActionTab === 'view' ? (
+            <div
+              id="ai-action-panel-view"
+              role="tabpanel"
+              aria-labelledby="ai-action-tab-view"
+              className="ai-action-panel"
+            >
+              <div className="analysis-view-header">
+                <h3>分析済み {analyzedRecords.length} 件</h3>
+                <p className="field-hint">各行の「分析結果を見る」からレポートを開けます。</p>
+              </div>
+              <div className="toolbar download-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleDownloadAnalysisSchool()}
+                  disabled={batchBusy || analyzedRecords.length === 0}
+                >
+                  このスクールの分析結果をダウンロード (zip)
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleDownloadAnalysisSelected()}
+                  disabled={batchBusy || selectedAnalyzedRecords.length === 0}
+                >
+                  選択した分析結果をダウンロード (zip)
+                </button>
+              </div>
+              {analyzedRecordsSorted.length > 0 ? (
+                <ul className="analysis-view-list">
+                  {analyzedRecordsSorted.map((record) => (
+                    <li key={record.id} className="analysis-view-item">
+                      <div className="analysis-view-item-content">
+                        <strong>{record.student_name}</strong>
+                        <p>
+                          {record.grade} / {record.class} / {record.filename}
+                        </p>
+                        <time dateTime={record.analyzed_at ?? undefined}>
+                          分析: {formatDateTime(record.analyzed_at)}
+                        </time>
+                      </div>
+                      <div className="analysis-view-item-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => void handleViewAnalysis(record)}
+                          disabled={batchBusy}
+                        >
+                          分析結果を見る
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void handleReanalyze(record)}
+                          disabled={batchBusy}
+                        >
+                          再分析
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="field-hint">
+                  まだ分析結果がありません。「音声をAI分析」タブから分析を実行してください。
+                </p>
+              )}
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {school ? (
@@ -735,6 +952,35 @@ export default function DownloadPage() {
           ) : (
             <p className="field-hint">このスクールのダウンロード履歴はまだありません。</p>
           )}
+        </div>
+      ) : null}
+
+      {school && latestAnalyzed.length > 0 ? (
+        <div className="download-history analysis-recent" aria-live="polite">
+          <div className="history-header">
+            <h3>最新の分析結果</h3>
+            <span>{latestAnalyzed.length}件表示</span>
+          </div>
+          <ol>
+            {latestAnalyzed.map((record) => (
+              <li key={record.id} className="analysis-recent-item">
+                <span>
+                  {record.student_name} / {record.filename}
+                </span>
+                <div className="analysis-recent-actions">
+                  <time>{formatDateTime(record.analyzed_at)}</time>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void handleViewAnalysis(record)}
+                    disabled={batchBusy}
+                  >
+                    結果を見る
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
         </div>
       ) : null}
 
@@ -781,7 +1027,9 @@ export default function DownloadPage() {
             {records.map((record) => (
               <article
                 key={record.id}
-                className={`record-item${selectedIds.has(record.id) ? ' selected' : ''}`}
+                className={`record-item${selectedIds.has(record.id) ? ' selected' : ''}${
+                  record.analyzed_at ? ' record-item--analyzed' : ''
+                }`}
               >
                 <label className="record-select">
                   <input
@@ -804,30 +1052,56 @@ export default function DownloadPage() {
                       ? `最終DL: ${formatDateTime(record.downloaded_at)}`
                       : '未ダウンロード'}
                   </p>
-                  {record.analyzed_at ? (
-                    <p className="analysis-status analyzed">
-                      分析済: {formatDateTime(record.analyzed_at)}
-                    </p>
-                  ) : (
-                    <p className="analysis-status">未分析</p>
-                  )}
+                  <p className="record-badges">
+                    <span
+                      className={`status-badge${record.analyzed_at ? ' status-badge--analyzed' : ' status-badge--pending'}`}
+                    >
+                      {record.analyzed_at ? '分析済み' : '未分析'}
+                    </span>
+                    {record.analyzed_at ? (
+                      <span className="analysis-status analyzed">
+                        {formatDateTime(record.analyzed_at)}
+                      </span>
+                    ) : null}
+                  </p>
                 </div>
                 <div className="record-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void handleAnalyzeRecord(record)}
-                    disabled={batchBusy}
-                  >
-                    AI分析
-                  </button>
+                  {record.analyzed_at ? (
+                    <>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void handleViewAnalysis(record)}
+                        disabled={batchBusy}
+                      >
+                        分析結果を見る
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleReanalyze(record)}
+                        disabled={batchBusy}
+                      >
+                        再分析
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void handleRunAnalysis(record)}
+                      disabled={batchBusy}
+                    >
+                      AI分析を実行
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="secondary-button"
                     onClick={() => void handleDownloadRecord(record)}
                     disabled={batchBusy}
                   >
-                    txt
+                    文字起こし
                   </button>
                   <button
                     type="button"
@@ -961,6 +1235,7 @@ export default function DownloadPage() {
         content={analysisModal.content}
         loading={analysisModal.loading}
         cached={analysisModal.cached}
+        mode={analysisModal.mode}
         onClose={() =>
           setAnalysisModal((current) => ({
             ...current,
@@ -974,7 +1249,7 @@ export default function DownloadPage() {
           analysisModal.recordId
             ? () => {
                 const record = records.find((item) => item.id === analysisModal.recordId);
-                if (record) void handleAnalyzeRecord(record, true);
+                if (record) void handleReanalyze(record);
               }
             : undefined
         }

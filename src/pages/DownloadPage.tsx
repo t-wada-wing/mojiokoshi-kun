@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import AnalysisModal from '../components/AnalysisModal';
+import BlockingProgressOverlay from '../components/BlockingProgressOverlay';
 import { MAX_BULK_ANALYZE, SCHOOLS } from '../constants';
 import {
   analyzeRecord,
@@ -21,6 +22,20 @@ import {
 const PASSCODE_STORAGE_KEY = 'transcribe-passcode';
 
 type DownloadTab = 'ai' | 'admin';
+
+type BatchProgressState = {
+  active: boolean;
+  message: string;
+  percent: number;
+  note: string;
+};
+
+const IDLE_BATCH_PROGRESS: BatchProgressState = {
+  active: false,
+  message: '',
+  percent: 0,
+  note: '',
+};
 
 function parseServerDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -109,7 +124,8 @@ export default function DownloadPage() {
   const [monitorError, setMonitorError] = useState('');
   const [monthlyUsage, setMonthlyUsage] = useState<MonthlyUsageResponse | null>(null);
   const [usageError, setUsageError] = useState('');
-  const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<BatchProgressState>(IDLE_BATCH_PROGRESS);
+  const batchBusy = batchProgress.active;
   const [activeTab, setActiveTab] = useState<DownloadTab>('ai');
   const [adminLoaded, setAdminLoaded] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
@@ -209,6 +225,7 @@ export default function DownloadPage() {
   };
 
   const handleTabChange = (tab: DownloadTab) => {
+    if (batchBusy) return;
     setActiveTab(tab);
     if (tab === 'admin' && !adminLoaded && !adminLoading) {
       void loadAdminPanels(passcode);
@@ -249,6 +266,7 @@ export default function DownloadPage() {
   };
 
   const handleDelete = async (id: number) => {
+    if (batchBusy) return;
     if (!window.confirm('この記録を削除しますか？')) return;
     try {
       await deleteRecord(passcode, id);
@@ -261,19 +279,43 @@ export default function DownloadPage() {
     }
   };
 
-  const refreshAfterDownload = async (message: string) => {
-    if (!school) return;
-    await loadRecords(school);
-    setActionMessage(message);
+  const beginBatch = (message: string, note: string) => {
+    setBatchProgress({
+      active: true,
+      message,
+      percent: 0,
+      note,
+    });
+  };
+
+  const updateBatch = (message: string, percent: number) => {
+    setBatchProgress((current) => ({
+      ...current,
+      active: true,
+      message,
+      percent: Math.min(100, Math.max(0, percent)),
+    }));
+  };
+
+  const endBatch = () => {
+    setBatchProgress(IDLE_BATCH_PROGRESS);
   };
 
   const runDownload = async (href: string, fallbackFilename: string, message: string) => {
-    setActionMessage('ダウンロードを準備しています...');
+    beginBatch('ダウンロードを準備しています...', 'zip の作成が完了するまでお待ちください');
     try {
+      updateBatch('ファイルを取得しています...', 30);
       await startDownload(href, fallbackFilename);
-      await refreshAfterDownload(message);
+      updateBatch('一覧を更新しています...', 85);
+      if (school) {
+        await loadRecords(school);
+      }
+      setActionMessage(message);
+      updateBatch('ダウンロードが完了しました', 100);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'ダウンロードに失敗しました');
+    } finally {
+      endBatch();
     }
   };
 
@@ -302,7 +344,7 @@ export default function DownloadPage() {
   };
 
   const handleDownloadSchool = async () => {
-    if (!school) return;
+    if (!school || batchBusy) return;
     await runDownload(
       downloadZipUrl(passcode, school),
       `${school}_文字起こし.zip`,
@@ -311,6 +353,7 @@ export default function DownloadPage() {
   };
 
   const handleDownloadSelected = async () => {
+    if (batchBusy) return;
     if (selectedRecords.length === 0) {
       setActionMessage('ダウンロードするファイルを選択してください');
       return;
@@ -327,7 +370,7 @@ export default function DownloadPage() {
   };
 
   const handleDownloadAnalysisSchool = async () => {
-    if (!school) return;
+    if (!school || batchBusy) return;
     await runDownload(
       downloadAnalysisZipUrl(passcode, school),
       `${school}_AI分析.zip`,
@@ -336,6 +379,7 @@ export default function DownloadPage() {
   };
 
   const handleDownloadAnalysisSelected = async () => {
+    if (batchBusy) return;
     if (selectedAnalyzedRecords.length === 0) {
       setActionMessage('ダウンロードする分析結果を選択してください');
       return;
@@ -352,6 +396,7 @@ export default function DownloadPage() {
   };
 
   const handleDownloadRecord = async (record: RecordItem) => {
+    if (batchBusy) return;
     await runDownload(
       downloadUrl(passcode, record.id),
       record.filename,
@@ -374,6 +419,7 @@ export default function DownloadPage() {
   };
 
   const handleAnalyzeRecord = async (record: RecordItem, force = false) => {
+    if (batchBusy) return;
     openAnalysisModal(record, true);
     try {
       const result = await analyzeRecord(passcode, record.id, { force });
@@ -396,35 +442,43 @@ export default function DownloadPage() {
   };
 
   const runBulkAnalyze = async (targets: RecordItem[], scopeLabel: string) => {
-    setBulkAnalyzing(true);
+    beginBatch(`AI一括分析を開始しています（${scopeLabel}）...`, '分析が完了するまでお待ちください');
     let success = 0;
     let failed = 0;
 
-    for (let index = 0; index < targets.length; index += 1) {
-      const record = targets[index];
-      setActionMessage(
-        `AI一括分析中（${scopeLabel}）... ${index + 1}/${targets.length} (${record.student_name})`,
-      );
-      try {
-        await analyzeRecord(passcode, record.id);
-        success += 1;
-      } catch {
-        failed += 1;
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const record = targets[index];
+        const percent =
+          targets.length > 0 ? Math.round(((index + 1) / targets.length) * 90) : 0;
+        updateBatch(
+          `AI一括分析中（${scopeLabel}）... ${index + 1}/${targets.length}（${record.student_name}）`,
+          percent,
+        );
+        try {
+          await analyzeRecord(passcode, record.id);
+          success += 1;
+        } catch {
+          failed += 1;
+        }
       }
-    }
 
-    setBulkAnalyzing(false);
-    await loadRecords(school);
-    if (adminLoaded) {
-      void refreshAdminPanels(passcode);
+      updateBatch('一覧を更新しています...', 95);
+      await loadRecords(school);
+      if (adminLoaded) {
+        void refreshAdminPanels(passcode);
+      }
+      setActionMessage(
+        `一括分析が完了しました（成功 ${success}件 / 失敗 ${failed}件）。1回最大 ${MAX_BULK_ANALYZE} 件まで実行できます。`,
+      );
+      updateBatch('一括分析が完了しました', 100);
+    } finally {
+      endBatch();
     }
-    setActionMessage(
-      `一括分析が完了しました（成功 ${success}件 / 失敗 ${failed}件）。1回最大 ${MAX_BULK_ANALYZE} 件まで実行できます。`,
-    );
   };
 
   const handleBulkAnalyzeSchool = async () => {
-    if (!school || bulkAnalyzing) return;
+    if (!school || batchBusy) return;
 
     const targets = unanalyzedRecords.slice(0, MAX_BULK_ANALYZE);
     if (targets.length === 0) {
@@ -443,7 +497,7 @@ export default function DownloadPage() {
   };
 
   const handleBulkAnalyzeSelected = async () => {
-    if (!school || bulkAnalyzing) return;
+    if (!school || batchBusy) return;
 
     if (selectedRecords.length === 0) {
       setActionMessage('分析するファイルを選択してください');
@@ -538,6 +592,7 @@ export default function DownloadPage() {
         <button
           type="button"
           className="secondary-button"
+          disabled={batchBusy}
           onClick={() => {
             sessionStorage.removeItem(PASSCODE_STORAGE_KEY);
             setAuthenticated(false);
@@ -566,6 +621,7 @@ export default function DownloadPage() {
           aria-selected={activeTab === 'ai'}
           aria-controls="download-panel-ai"
           className={`download-tab${activeTab === 'ai' ? ' active' : ''}`}
+          disabled={batchBusy}
           onClick={() => handleTabChange('ai')}
         >
           AI分析
@@ -577,6 +633,7 @@ export default function DownloadPage() {
           aria-selected={activeTab === 'admin'}
           aria-controls="download-panel-admin"
           className={`download-tab${activeTab === 'admin' ? ' active' : ''}`}
+          disabled={batchBusy}
           onClick={() => handleTabChange('admin')}
         >
           管理
@@ -587,7 +644,7 @@ export default function DownloadPage() {
         <div id="download-panel-ai" role="tabpanel" aria-labelledby="download-tab-ai">
       <label>
         スクール
-        <select value={school} onChange={(e) => loadRecords(e.target.value)}>
+        <select value={school} disabled={batchBusy || loading} onChange={(e) => loadRecords(e.target.value)}>
           <option value="">選択してください</option>
           {SCHOOLS.map((item) => (
             <option key={item} value={item}>
@@ -603,6 +660,7 @@ export default function DownloadPage() {
             type="button"
             className="secondary-button"
             onClick={() => void handleDownloadSchool()}
+            disabled={batchBusy}
           >
             このスクールを一括ダウンロード (zip)
           </button>
@@ -610,7 +668,7 @@ export default function DownloadPage() {
             type="button"
             className="primary-button"
             onClick={() => void handleDownloadSelected()}
-            disabled={selectedRecords.length === 0}
+            disabled={batchBusy || selectedRecords.length === 0}
           >
             選択したファイルをダウンロード (zip)
           </button>
@@ -618,7 +676,7 @@ export default function DownloadPage() {
             type="button"
             className="secondary-button"
             onClick={() => void handleDownloadAnalysisSchool()}
-            disabled={analyzedRecords.length === 0}
+            disabled={batchBusy || analyzedRecords.length === 0}
           >
             このスクールの分析結果をダウンロード (zip)
           </button>
@@ -626,7 +684,7 @@ export default function DownloadPage() {
             type="button"
             className="secondary-button"
             onClick={() => void handleDownloadAnalysisSelected()}
-            disabled={selectedAnalyzedRecords.length === 0}
+            disabled={batchBusy || selectedAnalyzedRecords.length === 0}
           >
             選択した分析結果をダウンロード (zip)
           </button>
@@ -634,17 +692,17 @@ export default function DownloadPage() {
             type="button"
             className="primary-button"
             onClick={() => void handleBulkAnalyzeSelected()}
-            disabled={bulkAnalyzing || selectedUnanalyzedRecords.length === 0}
+            disabled={batchBusy || selectedUnanalyzedRecords.length === 0}
           >
-            {bulkAnalyzing ? 'AI一括分析中...' : '選択したファイルをAI分析'}
+            選択したファイルをAI分析
           </button>
           <button
             type="button"
             className="secondary-button"
             onClick={() => void handleBulkAnalyzeSchool()}
-            disabled={bulkAnalyzing || unanalyzedRecords.length === 0}
+            disabled={batchBusy || unanalyzedRecords.length === 0}
           >
-            {bulkAnalyzing ? 'AI一括分析中...' : 'このスクールをまとめてAI分析'}
+            このスクールをまとめてAI分析
           </button>
         </div>
       ) : null}
@@ -692,14 +750,19 @@ export default function DownloadPage() {
               {undownloadedCount > 0 ? `（未ダウンロード ${undownloadedCount}件）` : ''}
             </p>
             <div>
-              <button type="button" className="secondary-button" onClick={selectAll} disabled={allSelected}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={selectAll}
+                disabled={batchBusy || allSelected}
+              >
                 一括チェック
               </button>
               <button
                 type="button"
                 className="secondary-button"
                 onClick={selectUndownloaded}
-                disabled={undownloadedCount === 0}
+                disabled={batchBusy || undownloadedCount === 0}
               >
                 未ダウンロードを選択
               </button>
@@ -707,7 +770,7 @@ export default function DownloadPage() {
                 type="button"
                 className="secondary-button"
                 onClick={clearSelection}
-                disabled={selectedRecords.length === 0}
+                disabled={batchBusy || selectedRecords.length === 0}
               >
                 一括解除
               </button>
@@ -724,6 +787,7 @@ export default function DownloadPage() {
                   <input
                     type="checkbox"
                     checked={selectedIds.has(record.id)}
+                    disabled={batchBusy}
                     onChange={() => toggleRecord(record.id)}
                     aria-label={`${record.filename}を選択`}
                   />
@@ -753,7 +817,7 @@ export default function DownloadPage() {
                     type="button"
                     className="secondary-button"
                     onClick={() => void handleAnalyzeRecord(record)}
-                    disabled={bulkAnalyzing}
+                    disabled={batchBusy}
                   >
                     AI分析
                   </button>
@@ -761,6 +825,7 @@ export default function DownloadPage() {
                     type="button"
                     className="secondary-button"
                     onClick={() => void handleDownloadRecord(record)}
+                    disabled={batchBusy}
                   >
                     txt
                   </button>
@@ -768,6 +833,7 @@ export default function DownloadPage() {
                     type="button"
                     className="danger-button"
                     onClick={() => handleDelete(record.id)}
+                    disabled={batchBusy}
                   >
                     削除
                   </button>
@@ -881,6 +947,13 @@ export default function DownloadPage() {
       {monitorError ? <p className="field-error">{monitorError}</p> : null}
         </div>
       ) : null}
+
+      <BlockingProgressOverlay
+        open={batchProgress.active}
+        message={batchProgress.message}
+        percent={batchProgress.percent}
+        note={batchProgress.note}
+      />
 
       <AnalysisModal
         open={analysisModal.open}

@@ -1,0 +1,8 @@
+node_modules
+dist
+.dev.vars
+APIキー.txt
+.DS_Store
+*.local
+.wrangler
+.vite

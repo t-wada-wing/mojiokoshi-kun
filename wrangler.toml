@@ -1,0 +1,15 @@
+name = "mojokoshi-kun"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "transcribe-db"
+database_id = "local-dev-db"
+
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "transcribe-audio"
+
+[vars]
+TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"

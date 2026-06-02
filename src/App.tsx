@@ -12,7 +12,7 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">文字起こしPWA</p>
+          <p className="eyebrow">音声ファイルアップロード</p>
           <h1>文字起こしくん</h1>
         </div>
         <nav className="app-nav">

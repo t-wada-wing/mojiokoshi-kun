@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -27,4 +27,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 036b1ad8b4977fb2e2a712812d19f5c4
+          wranglerVersion: 4.96.0
           command: pages deploy dist --project-name=mojokoshi-kun

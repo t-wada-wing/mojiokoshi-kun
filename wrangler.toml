@@ -5,7 +5,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "transcribe-db"
-database_id = "local-dev-db"
+database_id = "831aaf36-4277-41a9-88e1-8fb0ae10f3a8"
 
 [[r2_buckets]]
 binding = "AUDIO"

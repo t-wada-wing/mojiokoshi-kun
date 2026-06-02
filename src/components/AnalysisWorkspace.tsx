@@ -298,130 +298,133 @@ export default function AnalysisWorkspace({
           </div>
         ) : (
           <>
-            <header className="analysis-detail-header">
-              <h3>分析結果: {selectedDetailRecord.student_name}</h3>
-              <dl className="analysis-detail-meta">
-                <div>
-                  <dt>学年 / クラス</dt>
-                  <dd>
-                    {selectedDetailRecord.grade} / {selectedDetailRecord.class}
-                  </dd>
-                </div>
-                <div>
-                  <dt>ファイル</dt>
-                  <dd>{selectedDetailRecord.filename}</dd>
-                </div>
-                <div>
-                  <dt>登録</dt>
-                  <dd>{formatDateTime(selectedDetailRecord.created_at)}</dd>
-                </div>
-                {selectedDetailRecord.analyzed_at ? (
-                  <div>
-                    <dt>分析</dt>
-                    <dd>{formatDateTime(selectedDetailRecord.analyzed_at)}</dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>文字起こしDL</dt>
-                  <dd>
+            <div className="analysis-detail-chrome">
+              <header className="analysis-detail-header">
+                <h3>{selectedDetailRecord.student_name}</h3>
+                <p className="analysis-detail-meta-line">
+                  <span>
+                    {selectedDetailRecord.grade}/{selectedDetailRecord.class}
+                  </span>
+                  {selectedDetailRecord.analyzed_at ? (
+                    <>
+                      <span className="analysis-meta-sep" aria-hidden>
+                        ·
+                      </span>
+                      <span>分析 {formatDateTime(selectedDetailRecord.analyzed_at)}</span>
+                    </>
+                  ) : null}
+                  <span className="analysis-meta-sep" aria-hidden>
+                    ·
+                  </span>
+                  <span>登録 {formatDateTime(selectedDetailRecord.created_at)}</span>
+                  <span className="analysis-meta-sep" aria-hidden>
+                    ·
+                  </span>
+                  <span>
+                    起こしDL{' '}
                     {selectedDetailRecord.downloaded_at
                       ? formatDateTime(selectedDetailRecord.downloaded_at)
-                      : '未ダウンロード'}
-                  </dd>
-                </div>
-              </dl>
-            </header>
+                      : '未'}
+                  </span>
+                  {detail.cached && selectedDetailRecord.analyzed_at ? (
+                    <span className="status-badge status-badge--analyzed analysis-saved-badge">
+                      保存済
+                    </span>
+                  ) : null}
+                </p>
+                <p className="analysis-detail-meta-file" title={selectedDetailRecord.filename}>
+                  {selectedDetailRecord.filename}
+                </p>
+              </header>
 
-            <div className="analysis-detail-actions">
-              {selectedDetailRecord.analyzed_at ? (
-                <>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={onDownloadAnalysisTxt}
-                    disabled={batchBusy || detail.loading || !detail.content}
-                  >
-                    分析結果DL (txt)
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void onDownloadTranscript(selectedDetailRecord)}
-                    disabled={batchBusy}
-                  >
-                    文字起こしDL (txt)
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void onCopyAnalysis()}
-                    disabled={batchBusy || detail.loading || !detail.content}
-                  >
-                    コピー
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void onReanalyze(selectedDetailRecord)}
-                    disabled={batchBusy || detail.loading}
-                  >
-                    再分析
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => onDeleteRecord(selectedDetailRecord.id)}
-                    disabled={batchBusy}
-                  >
-                    削除
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => void onRunAnalysis(selectedDetailRecord)}
-                    disabled={batchBusy || detail.loading}
-                  >
-                    AI分析を実行
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void onDownloadTranscript(selectedDetailRecord)}
-                    disabled={batchBusy}
-                  >
-                    文字起こしDL (txt)
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => onDeleteRecord(selectedDetailRecord.id)}
-                    disabled={batchBusy}
-                  >
-                    削除
-                  </button>
-                </>
-              )}
+              <div className="analysis-detail-actions">
+                {selectedDetailRecord.analyzed_at ? (
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={onDownloadAnalysisTxt}
+                      disabled={batchBusy || detail.loading || !detail.content}
+                    >
+                      分析結果DL
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void onDownloadTranscript(selectedDetailRecord)}
+                      disabled={batchBusy}
+                    >
+                      文字起こしDL
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void onCopyAnalysis()}
+                      disabled={batchBusy || detail.loading || !detail.content}
+                    >
+                      コピー
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void onReanalyze(selectedDetailRecord)}
+                      disabled={batchBusy || detail.loading}
+                    >
+                      再分析
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => onDeleteRecord(selectedDetailRecord.id)}
+                      disabled={batchBusy}
+                    >
+                      削除
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void onRunAnalysis(selectedDetailRecord)}
+                      disabled={batchBusy || detail.loading}
+                    >
+                      AI分析を実行
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void onDownloadTranscript(selectedDetailRecord)}
+                      disabled={batchBusy}
+                    >
+                      文字起こしDL
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => onDeleteRecord(selectedDetailRecord.id)}
+                      disabled={batchBusy}
+                    >
+                      削除
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
-            {detail.error ? <p className="field-error">{detail.error}</p> : null}
+            <div className="analysis-detail-scroll">
+              {detail.error ? <p className="field-error">{detail.error}</p> : null}
 
-            {detail.loading ? (
-              <p className="field-hint">分析結果を読み込んでいます...</p>
-            ) : selectedDetailRecord.analyzed_at && detail.content ? (
-              <>
-                {detail.cached ? (
-                  <p className="field-hint">保存済みの分析結果を表示しています。</p>
-                ) : null}
+              {detail.loading ? (
+                <p className="field-hint">分析結果を読み込んでいます...</p>
+              ) : selectedDetailRecord.analyzed_at && detail.content ? (
                 <pre className="analysis-content analysis-detail-body">{detail.content}</pre>
-              </>
-            ) : !selectedDetailRecord.analyzed_at ? (
-              <p className="field-hint">
-                まだ分析されていません。「AI分析を実行」で面談レポートを生成できます。
-              </p>
-            ) : null}
+              ) : !selectedDetailRecord.analyzed_at ? (
+                <p className="field-hint">
+                  まだ分析されていません。「AI分析を実行」で面談レポートを生成できます。
+                </p>
+              ) : null}
+            </div>
           </>
         )}
       </div>

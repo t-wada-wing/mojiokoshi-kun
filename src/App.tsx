@@ -1,6 +1,11 @@
-import { Link, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes } from 'react-router-dom';
 import UploadPage from './pages/UploadPage';
 import DownloadPage from './pages/DownloadPage';
+
+function navClassName(baseClassName: string) {
+  return ({ isActive }: { isActive: boolean }) =>
+    `${baseClassName}${isActive ? ' active' : ''}`;
+}
 
 export default function App() {
   return (
@@ -11,8 +16,12 @@ export default function App() {
           <h1>文字起こしくん</h1>
         </div>
         <nav className="app-nav">
-          <Link to="/">アップロード</Link>
-          <Link to="/download">ダウンロード</Link>
+          <NavLink to="/" end className={navClassName('nav-link nav-link-main')}>
+            アップロード
+          </NavLink>
+          <NavLink to="/download" className={navClassName('nav-link nav-link-sub')}>
+            ダウンロード
+          </NavLink>
         </nav>
       </header>
       <main className="app-main">

@@ -193,7 +193,7 @@ export default function UploadPage() {
               type="text"
               value={studentName}
               onChange={(e) => handleStudentNameChange(e.target.value)}
-              placeholder="苗字と名前の間に半角スペースを入れて入力"
+              placeholder="例: 山田 太郎"
               disabled={isSubmitting}
             />
             {nameError ? <span className="field-error">{nameError}</span> : null}

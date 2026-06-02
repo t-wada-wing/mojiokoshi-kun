@@ -134,6 +134,10 @@ select {
   margin: 0 auto;
 }
 
+.app-main--wide {
+  max-width: 1200px;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -445,10 +449,10 @@ input::placeholder {
 
 .analysis-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 38%) minmax(0, 1fr);
   gap: 1rem;
   margin-top: 1rem;
-  min-height: min(70vh, 720px);
+  min-height: min(56vh, 560px);
   align-items: stretch;
 }
 
@@ -478,10 +482,24 @@ input::placeholder {
 }
 
 .analysis-bulk-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
-  align-items: center;
+  align-items: stretch;
+}
+
+.analysis-bulk-actions .download-menu {
+  min-width: 0;
+}
+
+.analysis-bulk-actions > .primary-button,
+.analysis-bulk-actions > .secondary-button,
+.analysis-bulk-actions > .danger-button,
+.analysis-bulk-actions .download-menu > .secondary-button {
+  width: 100%;
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+  font-size: 0.875rem;
 }
 
 .download-menu {
@@ -561,10 +579,17 @@ input::placeholder {
 }
 
 .analysis-list-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+.analysis-list-toolbar .secondary-button {
+  width: 100%;
+  font-size: 0.875rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 .analysis-compact-list {
@@ -651,10 +676,16 @@ input::placeholder {
 
 .analysis-detail-empty {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 2rem 1rem;
+  border: 1px dashed #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  margin-top: 0.25rem;
 }
 
 .analysis-detail-empty h3 {
@@ -816,8 +847,18 @@ input::placeholder {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  align-items: start;
+  align-items: flex-start;
   margin-bottom: 1rem;
+}
+
+.section-header > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.section-header > .secondary-button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .toolbar {
@@ -1129,7 +1170,15 @@ input::placeholder {
     display: inline-flex;
   }
 
+  .analysis-bulk-actions {
+    grid-template-columns: 1fr;
+  }
+
   .analysis-bulk-actions > *,
+  .analysis-list-toolbar {
+    grid-template-columns: 1fr;
+  }
+
   .analysis-list-toolbar button,
   .analysis-detail-actions > * {
     width: 100%;

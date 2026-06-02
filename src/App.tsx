@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import UploadPage from './pages/UploadPage';
 import DownloadPage from './pages/DownloadPage';
 
@@ -8,6 +8,8 @@ function navClassName(baseClassName: string) {
 }
 
 export default function App() {
+  const isAnalysisPage = useLocation().pathname.startsWith('/download');
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -24,7 +26,7 @@ export default function App() {
           </NavLink>
         </nav>
       </header>
-      <main className="app-main">
+      <main className={`app-main${isAnalysisPage ? ' app-main--wide' : ''}`}>
         <Routes>
           <Route path="/" element={<UploadPage />} />
           <Route path="/download" element={<DownloadPage />} />

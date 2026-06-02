@@ -302,6 +302,74 @@ input::placeholder {
   color: #b91c1c;
 }
 
+.analysis-modal {
+  width: min(100%, 720px);
+  max-height: min(90vh, 800px);
+  display: flex;
+  flex-direction: column;
+}
+
+.analysis-content {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.usage-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.usage-table th,
+.usage-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.usage-table th {
+  color: #475569;
+  font-weight: 700;
+  background: #fff;
+}
+
+.analysis-status {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.analysis-status.analyzed {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -344,7 +412,7 @@ input::placeholder {
 
 .monitor-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 0.75rem;
   margin-top: 0.875rem;
 }
@@ -516,6 +584,7 @@ input::placeholder {
 
 .record-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   flex-shrink: 0;
 }

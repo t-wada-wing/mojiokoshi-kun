@@ -10,6 +10,7 @@ import {
   recordUploadEvent,
   transcribeAudioInChunks,
   updateUploadEventStatus,
+  updateUploadEventUsage,
   type Env,
 } from '../_lib';
 
@@ -119,7 +120,9 @@ export const onRequestPost: PagesFunction<Env> = async (context: PagesContext) =
 
     let transcript: string;
     try {
-      transcript = await transcribeAudioInChunks(env, transcriptionInputs);
+      const transcription = await transcribeAudioInChunks(env, transcriptionInputs);
+      transcript = transcription.text;
+      await updateUploadEventUsage(env, uploadEventId, transcription.usage);
     } catch (error) {
       await env.AUDIO.delete(audioKey);
       await updateUploadEventStatus(env, uploadEventId, 'failed');

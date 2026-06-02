@@ -1,5 +1,7 @@
 import {
   ensureSchema,
+  getAnalysisLimitConfig,
+  getTodayAnalysisStats,
   getUploadLimitConfig,
   jsonResponse,
   unauthorized,
@@ -68,6 +70,8 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
       };
     });
 
+    const analysisToday = await getTodayAnalysisStats(env);
+
     return jsonResponse({
       ok: true,
       summary: {
@@ -76,8 +80,10 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
         rejectedCount: summary?.rejected_count ?? 0,
         failedCount: summary?.failed_count ?? 0,
       },
+      analysisToday,
       alerts,
       limits: getUploadLimitConfig(env),
+      analysisLimits: getAnalysisLimitConfig(env),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'アップロード監視の取得に失敗しました';

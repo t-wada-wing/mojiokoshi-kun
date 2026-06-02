@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { SCHOOLS } from '../constants';
+import AnalysisModal from '../components/AnalysisModal';
+import { MAX_BULK_ANALYZE, SCHOOLS } from '../constants';
 import {
+  analyzeRecord,
   deleteRecord,
   downloadSelectedZipUrl,
   downloadUrl,
   downloadZipUrl,
+  fetchMonthlyUsage,
   fetchRecords,
   fetchUploadMonitor,
   verifyPasscode,
+  type MonthlyUsageResponse,
   type RecordItem,
   type UploadMonitorData,
 } from '../lib/api';
@@ -99,6 +103,26 @@ export default function DownloadPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [uploadMonitor, setUploadMonitor] = useState<UploadMonitorData | null>(null);
   const [monitorError, setMonitorError] = useState('');
+  const [monthlyUsage, setMonthlyUsage] = useState<MonthlyUsageResponse | null>(null);
+  const [usageError, setUsageError] = useState('');
+  const [bulkAnalyzing, setBulkAnalyzing] = useState(false);
+  const [analysisModal, setAnalysisModal] = useState<{
+    open: boolean;
+    title: string;
+    content: string;
+    loading: boolean;
+    cached: boolean;
+    recordId: number | null;
+    downloadName: string;
+  }>({
+    open: false,
+    title: '',
+    content: '',
+    loading: false,
+    cached: false,
+    recordId: null,
+    downloadName: '',
+  });
 
   const selectedRecords = useMemo(
     () => records.filter((record) => selectedIds.has(record.id)),
@@ -116,13 +140,17 @@ export default function DownloadPage() {
 
   const allSelected = records.length > 0 && records.every((record) => selectedIds.has(record.id));
   const undownloadedCount = records.filter((record) => !record.downloaded_at).length;
+  const unanalyzedRecords = useMemo(
+    () => records.filter((record) => !record.analyzed_at),
+    [records],
+  );
 
   useEffect(() => {
     const saved = sessionStorage.getItem(PASSCODE_STORAGE_KEY);
     if (saved) {
       setPasscode(saved);
       setAuthenticated(true);
-      void loadUploadMonitor(saved);
+      void refreshAdminPanels(saved);
     }
   }, []);
 
@@ -137,6 +165,21 @@ export default function DownloadPage() {
     }
   };
 
+  const loadMonthlyUsage = async (targetPasscode = passcode) => {
+    try {
+      const usage = await fetchMonthlyUsage(targetPasscode);
+      setMonthlyUsage(usage);
+      setUsageError('');
+    } catch (error) {
+      setMonthlyUsage(null);
+      setUsageError(error instanceof Error ? error.message : '利用料金の取得に失敗しました');
+    }
+  };
+
+  const refreshAdminPanels = async (targetPasscode = passcode) => {
+    await Promise.all([loadUploadMonitor(targetPasscode), loadMonthlyUsage(targetPasscode)]);
+  };
+
   const handleAuth = async (event: React.FormEvent) => {
     event.preventDefault();
     setAuthError('');
@@ -148,7 +191,7 @@ export default function DownloadPage() {
     }
     sessionStorage.setItem(PASSCODE_STORAGE_KEY, passcode);
     setAuthenticated(true);
-    void loadUploadMonitor(passcode);
+    void refreshAdminPanels(passcode);
   };
 
   const loadRecords = async (selectedSchool: string) => {
@@ -160,7 +203,7 @@ export default function DownloadPage() {
       const items = await fetchRecords(passcode, selectedSchool);
       setRecords(items);
       setSelectedIds(new Set());
-      void loadUploadMonitor(passcode);
+      void refreshAdminPanels(passcode);
     } catch (error) {
       setRecords([]);
       setSelectedIds(new Set());
@@ -256,6 +299,113 @@ export default function DownloadPage() {
     );
   };
 
+  const analysisFilename = (filename: string) => filename.replace(/\.txt$/i, '_分析.txt');
+
+  const openAnalysisModal = (record: RecordItem, loading: boolean, content = '', cached = false) => {
+    setAnalysisModal({
+      open: true,
+      title: `AI分析: ${record.student_name}`,
+      content,
+      loading,
+      cached,
+      recordId: record.id,
+      downloadName: analysisFilename(record.filename),
+    });
+  };
+
+  const handleAnalyzeRecord = async (record: RecordItem, force = false) => {
+    openAnalysisModal(record, true);
+    try {
+      const result = await analyzeRecord(passcode, record.id, { force });
+      setAnalysisModal((current) => ({
+        ...current,
+        content: result.analysis,
+        loading: false,
+        cached: result.cached,
+      }));
+      if (school) {
+        await loadRecords(school);
+      }
+      void refreshAdminPanels(passcode);
+    } catch (error) {
+      setAnalysisModal((current) => ({ ...current, open: false, loading: false }));
+      setActionMessage(error instanceof Error ? error.message : '分析に失敗しました');
+    }
+  };
+
+  const handleBulkAnalyzeSchool = async () => {
+    if (!school || bulkAnalyzing) return;
+
+    const targets = unanalyzedRecords.slice(0, MAX_BULK_ANALYZE);
+    if (targets.length === 0) {
+      setActionMessage('未分析の記録がありません');
+      return;
+    }
+
+    if (unanalyzedRecords.length > MAX_BULK_ANALYZE) {
+      const proceed = window.confirm(
+        `未分析が ${unanalyzedRecords.length} 件あります。1回の一括分析は最大 ${MAX_BULK_ANALYZE} 件までです。\n今回 ${targets.length} 件を分析します。続行しますか？`,
+      );
+      if (!proceed) return;
+    }
+
+    setBulkAnalyzing(true);
+    let success = 0;
+    let failed = 0;
+
+    for (let index = 0; index < targets.length; index += 1) {
+      const record = targets[index];
+      setActionMessage(`AI一括分析中... ${index + 1}/${targets.length} (${record.student_name})`);
+      try {
+        await analyzeRecord(passcode, record.id);
+        success += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    setBulkAnalyzing(false);
+    await loadRecords(school);
+    void refreshAdminPanels(passcode);
+    setActionMessage(
+      `一括分析が完了しました（成功 ${success}件 / 失敗 ${failed}件）。1回最大 ${MAX_BULK_ANALYZE} 件まで実行できます。`,
+    );
+  };
+
+  const handleCopyAnalysis = async () => {
+    if (!analysisModal.content) return;
+    try {
+      await navigator.clipboard.writeText(analysisModal.content);
+      setActionMessage('分析結果をコピーしました');
+    } catch {
+      setActionMessage('コピーに失敗しました');
+    }
+  };
+
+  const handleDownloadAnalysis = () => {
+    if (!analysisModal.content) return;
+    const blob = new Blob([analysisModal.content], { type: 'text/plain;charset=utf-8' });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = analysisModal.downloadName || '分析.txt';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    setActionMessage('分析結果をダウンロードしました');
+  };
+
+  const formatMonthLabel = (month: string) => {
+    const [year, mon] = month.split('-');
+    return `${year}年${Number(mon)}月`;
+  };
+
+  const formatYen = (value: number) =>
+    new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(value);
+
+  const formatUsd = (value: number) => `$${value.toFixed(4)}`;
+
   if (!authenticated) {
     return (
       <section className="card narrow">
@@ -299,11 +449,54 @@ export default function DownloadPage() {
             setSelectedIds(new Set());
             setUploadMonitor(null);
             setMonitorError('');
+            setMonthlyUsage(null);
+            setUsageError('');
           }}
         >
           ログアウト
         </button>
       </div>
+
+      <section className="usage-panel" aria-live="polite">
+        <div className="history-header">
+          <h3>月別 推定利用料金（目安）</h3>
+          {monthlyUsage ? <span>為替目安: 1USD = {monthlyUsage.usdJpyRate}円</span> : null}
+        </div>
+        {monthlyUsage ? (
+          <>
+            <p className="field-hint">{monthlyUsage.disclaimer}</p>
+            {monthlyUsage.months.length > 0 ? (
+              <table className="usage-table">
+                <thead>
+                  <tr>
+                    <th>月</th>
+                    <th>文字起こし</th>
+                    <th>AI分析</th>
+                    <th>合計(円)</th>
+                    <th>合計(USD)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyUsage.months.map((row) => (
+                    <tr key={row.month}>
+                      <td>{formatMonthLabel(row.month)}</td>
+                      <td>{formatYen(row.transcribeUsd * monthlyUsage.usdJpyRate)}</td>
+                      <td>{formatYen(row.analyzeUsd * monthlyUsage.usdJpyRate)}</td>
+                      <td>{formatYen(row.totalJpy)}</td>
+                      <td>{formatUsd(row.totalUsd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="field-hint">まだ集計データがありません。</p>
+            )}
+          </>
+        ) : (
+          <p className="field-hint">利用料金を読み込み中...</p>
+        )}
+        {usageError ? <p className="field-error">{usageError}</p> : null}
+      </section>
 
       {uploadMonitor ? (
         <section className="upload-monitor" aria-live="polite">
@@ -324,7 +517,21 @@ export default function DownloadPage() {
               <strong>{formatBytes(uploadMonitor.limits.maxFileBytes)}</strong>
               <span>ファイル上限</span>
             </p>
+            {uploadMonitor.analysisToday ? (
+              <p>
+                <strong>{uploadMonitor.analysisToday.count}</strong>
+                <span>
+                  本日の分析（約{formatYen(uploadMonitor.analysisToday.estimatedJpy)}）
+                </span>
+              </p>
+            ) : null}
           </div>
+          {uploadMonitor.analysisLimits ? (
+            <p className="field-hint">
+              AI分析の上限: 1時間あたり {uploadMonitor.analysisLimits.maxPerIpHour}件 / 1日全体{' '}
+              {uploadMonitor.analysisLimits.maxGlobalDay}件
+            </p>
+          ) : null}
           {uploadMonitor.alerts.length > 0 ? (
             <ol className="monitor-alerts">
               {uploadMonitor.alerts.slice(0, 3).map((alert) => (
@@ -371,7 +578,21 @@ export default function DownloadPage() {
           >
             選択したファイルをダウンロード (zip)
           </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void handleBulkAnalyzeSchool()}
+            disabled={bulkAnalyzing || unanalyzedRecords.length === 0}
+          >
+            {bulkAnalyzing ? 'AI一括分析中...' : 'このスクールをまとめてAI分析'}
+          </button>
         </div>
+      ) : null}
+
+      {school ? (
+        <p className="field-hint">
+          1回の一括AI分析は最大 {MAX_BULK_ANALYZE} 件までです（未分析 {unanalyzedRecords.length} 件）。
+        </p>
       ) : null}
 
       {school ? (
@@ -457,8 +678,23 @@ export default function DownloadPage() {
                       ? `最終DL: ${formatDateTime(record.downloaded_at)}`
                       : '未ダウンロード'}
                   </p>
+                  {record.analyzed_at ? (
+                    <p className="analysis-status analyzed">
+                      分析済: {formatDateTime(record.analyzed_at)}
+                    </p>
+                  ) : (
+                    <p className="analysis-status">未分析</p>
+                  )}
                 </div>
                 <div className="record-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void handleAnalyzeRecord(record)}
+                    disabled={bulkAnalyzing}
+                  >
+                    AI分析
+                  </button>
                   <button
                     type="button"
                     className="secondary-button"
@@ -483,6 +719,31 @@ export default function DownloadPage() {
       {school && !loading && records.length === 0 && !listError ? (
         <p className="field-hint">このスクールの記録はまだありません。</p>
       ) : null}
+
+      <AnalysisModal
+        open={analysisModal.open}
+        title={analysisModal.title}
+        content={analysisModal.content}
+        loading={analysisModal.loading}
+        cached={analysisModal.cached}
+        onClose={() =>
+          setAnalysisModal((current) => ({
+            ...current,
+            open: false,
+            loading: false,
+          }))
+        }
+        onCopy={() => void handleCopyAnalysis()}
+        onDownload={handleDownloadAnalysis}
+        onReanalyze={
+          analysisModal.recordId
+            ? () => {
+                const record = records.find((item) => item.id === analysisModal.recordId);
+                if (record) void handleAnalyzeRecord(record, true);
+              }
+            : undefined
+        }
+      />
     </section>
   );
 }

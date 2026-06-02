@@ -68,16 +68,46 @@ npm run dev
 
 ### 5. 本番デプロイ
 
+#### 方法A: GitHub Actions（推奨）
+
+1. Cloudflare ダッシュボードで API トークンを作成（Permissions: Account / Cloudflare Pages Edit, D1 Edit, R2 Edit）
+2. GitHub リポジトリ `Settings > Secrets > Actions` に `CLOUDFLARE_API_TOKEN` を登録
+3. `main` へ push すると自動デプロイ
+
+#### 方法B: 手動デプロイ
+
 ```bash
 npm run deploy
 ```
 
-本番シークレット:
+#### Cloudflare リソース（初回のみ）
 
 ```bash
-npx wrangler pages secret put OPENAI_API_KEY
-npx wrangler pages secret put DOWNLOAD_PASSCODE
+# R2（OAuth 権限不足の場合はダッシュボードからバケット transcribe-audio を作成）
+npx wrangler login
+npx wrangler r2 bucket create transcribe-audio
+
+# D1（作成済みの場合は database_id を wrangler.toml に設定）
+npx wrangler d1 create transcribe-db
+npx wrangler d1 execute transcribe-db --remote --file=./schema.sql
 ```
+
+本番シークレット（未設定の場合）:
+
+```bash
+npx wrangler pages secret put OPENAI_API_KEY --project-name=mojokoshi-kun
+npx wrangler pages secret put DOWNLOAD_PASSCODE --project-name=mojokoshi-kun
+```
+
+#### Cloudflare Pages と GitHub の連携（ダッシュボード）
+
+CLI だけでは Git 連携の OAuth 認可が必要なため、以下はダッシュボードで行います。
+
+1. [Cloudflare Pages](https://dash.cloudflare.com/) > `mojokoshi-kun` > Settings > Builds & deployments
+2. Connect to Git > GitHub > `t-wada-wing/mojokoshi-kun` を選択
+3. Build command: `npm run build` / Build output: `dist`
+
+※ GitHub Actions デプロイと併用する場合は、どちらか一方に統一してください。
 
 ## ページ
 

@@ -122,6 +122,36 @@ export interface RecordItem {
   downloaded_at: string | null;
 }
 
+export interface UploadMonitorAlert {
+  id: number;
+  kind: string;
+  detail: {
+    school?: string;
+    filename?: string;
+    fileSize?: number;
+    perIpHourCount?: number;
+    perIpDayCount?: number;
+    globalDayCount?: number;
+  };
+  created_at: string;
+}
+
+export interface UploadMonitorData {
+  summary: {
+    totalCount: number;
+    completedCount: number;
+    rejectedCount: number;
+    failedCount: number;
+  };
+  alerts: UploadMonitorAlert[];
+  limits: {
+    maxPerIpHour: number;
+    maxPerIpDay: number;
+    maxGlobalDay: number;
+    maxFileBytes: number;
+  };
+}
+
 export async function fetchRecords(
   passcode: string,
   school: string,
@@ -141,6 +171,32 @@ export async function fetchRecords(
   }
 
   return data.records;
+}
+
+export async function fetchUploadMonitor(passcode: string): Promise<UploadMonitorData> {
+  const response = await fetch('/api/upload-monitor', {
+    headers: {
+      'X-Passcode': passcode,
+    },
+  });
+
+  const data = (await response.json()) as {
+    ok: boolean;
+    summary?: UploadMonitorData['summary'];
+    alerts?: UploadMonitorAlert[];
+    limits?: UploadMonitorData['limits'];
+    error?: string;
+  };
+
+  if (!response.ok || !data.ok || !data.summary || !data.alerts || !data.limits) {
+    throw new Error(data.error ?? 'アップロード監視の取得に失敗しました');
+  }
+
+  return {
+    summary: data.summary,
+    alerts: data.alerts,
+    limits: data.limits,
+  };
 }
 
 export async function deleteRecord(passcode: string, id: number): Promise<void> {

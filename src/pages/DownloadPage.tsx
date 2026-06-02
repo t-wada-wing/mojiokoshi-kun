@@ -6,8 +6,10 @@ import {
   downloadUrl,
   downloadZipUrl,
   fetchRecords,
+  fetchUploadMonitor,
   verifyPasscode,
   type RecordItem,
+  type UploadMonitorData,
 } from '../lib/api';
 
 const PASSCODE_STORAGE_KEY = 'transcribe-passcode';
@@ -34,6 +36,11 @@ function formatDateTime(value: string | null | undefined): string {
 
 function dateTimeValue(value: string | null | undefined): number {
   return parseServerDate(value)?.getTime() ?? 0;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)}KB`;
+  return `${Math.floor(value / 1024 / 1024)}MB`;
 }
 
 function filenameFromDisposition(disposition: string | null, fallback: string): string {
@@ -90,6 +97,8 @@ export default function DownloadPage() {
   const [listError, setListError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [uploadMonitor, setUploadMonitor] = useState<UploadMonitorData | null>(null);
+  const [monitorError, setMonitorError] = useState('');
 
   const selectedRecords = useMemo(
     () => records.filter((record) => selectedIds.has(record.id)),
@@ -113,8 +122,20 @@ export default function DownloadPage() {
     if (saved) {
       setPasscode(saved);
       setAuthenticated(true);
+      void loadUploadMonitor(saved);
     }
   }, []);
+
+  const loadUploadMonitor = async (targetPasscode = passcode) => {
+    try {
+      const monitor = await fetchUploadMonitor(targetPasscode);
+      setUploadMonitor(monitor);
+      setMonitorError('');
+    } catch (error) {
+      setUploadMonitor(null);
+      setMonitorError(error instanceof Error ? error.message : 'アップロード監視の取得に失敗しました');
+    }
+  };
 
   const handleAuth = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -127,6 +148,7 @@ export default function DownloadPage() {
     }
     sessionStorage.setItem(PASSCODE_STORAGE_KEY, passcode);
     setAuthenticated(true);
+    void loadUploadMonitor(passcode);
   };
 
   const loadRecords = async (selectedSchool: string) => {
@@ -138,6 +160,7 @@ export default function DownloadPage() {
       const items = await fetchRecords(passcode, selectedSchool);
       setRecords(items);
       setSelectedIds(new Set());
+      void loadUploadMonitor(passcode);
     } catch (error) {
       setRecords([]);
       setSelectedIds(new Set());
@@ -274,11 +297,50 @@ export default function DownloadPage() {
             setSchool('');
             setRecords([]);
             setSelectedIds(new Set());
+            setUploadMonitor(null);
+            setMonitorError('');
           }}
         >
           ログアウト
         </button>
       </div>
+
+      {uploadMonitor ? (
+        <section className="upload-monitor" aria-live="polite">
+          <div className="history-header">
+            <h3>アップロード監視</h3>
+            <span>{uploadMonitor.alerts.length > 0 ? '異常検知あり' : '正常'}</span>
+          </div>
+          <div className="monitor-grid">
+            <p>
+              <strong>{uploadMonitor.summary.totalCount}</strong>
+              <span>24時間の総数</span>
+            </p>
+            <p>
+              <strong>{uploadMonitor.summary.rejectedCount}</strong>
+              <span>遮断</span>
+            </p>
+            <p>
+              <strong>{formatBytes(uploadMonitor.limits.maxFileBytes)}</strong>
+              <span>ファイル上限</span>
+            </p>
+          </div>
+          {uploadMonitor.alerts.length > 0 ? (
+            <ol className="monitor-alerts">
+              {uploadMonitor.alerts.slice(0, 3).map((alert) => (
+                <li key={alert.id}>
+                  <span>{formatDateTime(alert.created_at)}</span>
+                  {alert.detail.school ? `${alert.detail.school} / ` : ''}
+                  {alert.detail.filename ?? alert.kind}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="field-hint">直近の異常アップロードはありません。</p>
+          )}
+        </section>
+      ) : null}
+      {monitorError ? <p className="field-error">{monitorError}</p> : null}
 
       <label>
         スクール

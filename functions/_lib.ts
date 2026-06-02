@@ -4,6 +4,10 @@ export interface Env {
   OPENAI_API_KEY: string;
   DOWNLOAD_PASSCODE: string;
   TRANSCRIBE_MODEL?: string;
+  UPLOAD_MAX_PER_IP_HOUR?: string;
+  UPLOAD_MAX_PER_IP_DAY?: string;
+  UPLOAD_MAX_GLOBAL_DAY?: string;
+  UPLOAD_MAX_FILE_MB?: string;
 }
 
 export interface TranscriptRecord {
@@ -18,6 +22,34 @@ export interface TranscriptRecord {
   model: string | null;
   created_at: string;
   downloaded_at: string | null;
+}
+
+export interface UploadLimitConfig {
+  maxPerIpHour: number;
+  maxPerIpDay: number;
+  maxGlobalDay: number;
+  maxFileBytes: number;
+}
+
+export interface UploadLimitResult {
+  allowed: boolean;
+  reason?: string;
+  message?: string;
+  perIpHourCount: number;
+  perIpDayCount: number;
+  globalDayCount: number;
+  config: UploadLimitConfig;
+}
+
+export interface UploadEventInput {
+  ipHash: string;
+  school: string;
+  grade: string;
+  className: string;
+  studentName: string;
+  filename: string;
+  fileSize: number;
+  status: 'accepted' | 'completed' | 'rejected' | 'failed';
 }
 
 export async function ensureSchema(env: Env): Promise<void> {
@@ -37,6 +69,31 @@ export async function ensureSchema(env: Env): Promise<void> {
     )
   `).run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS upload_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip_hash TEXT NOT NULL,
+      school TEXT,
+      grade TEXT,
+      class TEXT,
+      student_name TEXT,
+      filename TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS upload_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      ip_hash TEXT,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
   const columns = await env.DB.prepare(`PRAGMA table_info(transcripts)`).all<{ name: string }>();
   const hasDownloadedAt = (columns.results ?? []).some((column) => column.name === 'downloaded_at');
   if (!hasDownloadedAt) {
@@ -46,6 +103,9 @@ export async function ensureSchema(env: Env): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transcripts_school ON transcripts(school)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transcripts_downloaded_at ON transcripts(downloaded_at)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_events_ip_created ON upload_events(ip_hash, created_at)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_events_created ON upload_events(created_at)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_alerts_created ON upload_alerts(created_at)`),
   ]);
 }
 
@@ -84,6 +144,156 @@ export function contentDisposition(filename: string): string {
 
 export function getTranscribeModel(env: Env): string {
   return env.TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe';
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue <= 0) return fallback;
+  return numberValue;
+}
+
+export function getUploadLimitConfig(env: Env): UploadLimitConfig {
+  const maxFileMb = positiveNumber(env.UPLOAD_MAX_FILE_MB, 25);
+  return {
+    maxPerIpHour: positiveNumber(env.UPLOAD_MAX_PER_IP_HOUR, 12),
+    maxPerIpDay: positiveNumber(env.UPLOAD_MAX_PER_IP_DAY, 40),
+    maxGlobalDay: positiveNumber(env.UPLOAD_MAX_GLOBAL_DAY, 150),
+    maxFileBytes: Math.floor(maxFileMb * 1024 * 1024),
+  };
+}
+
+export async function hashClientIp(request: Request): Promise<string> {
+  const rawIp =
+    request.headers.get('CF-Connecting-IP') ??
+    request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ??
+    'unknown';
+  const data = new TextEncoder().encode(rawIp);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(hash)]
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function checkUploadLimit(
+  env: Env,
+  ipHash: string,
+  fileSize: number,
+): Promise<UploadLimitResult> {
+  const config = getUploadLimitConfig(env);
+  const [perIpHour, perIpDay, globalDay] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM upload_events
+       WHERE ip_hash = ? AND created_at >= datetime('now', '-1 hour')`,
+    )
+      .bind(ipHash)
+      .first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM upload_events
+       WHERE ip_hash = ? AND created_at >= datetime('now', '-1 day')`,
+    )
+      .bind(ipHash)
+      .first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM upload_events
+       WHERE created_at >= datetime('now', '-1 day')`,
+    ).first<{ count: number }>(),
+  ]);
+
+  const result: UploadLimitResult = {
+    allowed: true,
+    perIpHourCount: perIpHour?.count ?? 0,
+    perIpDayCount: perIpDay?.count ?? 0,
+    globalDayCount: globalDay?.count ?? 0,
+    config,
+  };
+
+  if (fileSize > config.maxFileBytes) {
+    return {
+      ...result,
+      allowed: false,
+      reason: 'file_size',
+      message: `音声ファイルが大きすぎます。${Math.floor(config.maxFileBytes / 1024 / 1024)}MB以下にしてください。`,
+    };
+  }
+
+  if (result.perIpHourCount >= config.maxPerIpHour) {
+    return {
+      ...result,
+      allowed: false,
+      reason: 'ip_hour',
+      message: '短時間にアップロードが集中しています。しばらく時間をおいてから再度お試しください。',
+    };
+  }
+
+  if (result.perIpDayCount >= config.maxPerIpDay) {
+    return {
+      ...result,
+      allowed: false,
+      reason: 'ip_day',
+      message: '本日のアップロード数が多くなっています。管理者に確認してください。',
+    };
+  }
+
+  if (result.globalDayCount >= config.maxGlobalDay) {
+    return {
+      ...result,
+      allowed: false,
+      reason: 'global_day',
+      message: '本日の全体アップロード数が上限に達しました。管理者に確認してください。',
+    };
+  }
+
+  return result;
+}
+
+export async function recordUploadEvent(env: Env, input: UploadEventInput): Promise<number | undefined> {
+  const result = await env.DB.prepare(
+    `INSERT INTO upload_events (ip_hash, school, grade, class, student_name, filename, file_size, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      input.ipHash,
+      input.school,
+      input.grade,
+      input.className,
+      input.studentName,
+      input.filename,
+      input.fileSize,
+      input.status,
+    )
+    .run();
+
+  return result.meta.last_row_id;
+}
+
+export async function updateUploadEventStatus(
+  env: Env,
+  id: number | undefined,
+  status: UploadEventInput['status'],
+): Promise<void> {
+  if (!id) return;
+
+  await env.DB.prepare(`UPDATE upload_events SET status = ? WHERE id = ?`)
+    .bind(status, id)
+    .run();
+}
+
+export async function recordUploadAlert(
+  env: Env,
+  kind: string,
+  ipHash: string | null,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO upload_alerts (kind, ip_hash, detail)
+     VALUES (?, ?, ?)`,
+  )
+    .bind(kind, ipHash, JSON.stringify(detail))
+    .run();
 }
 
 export async function transcribeAudio(

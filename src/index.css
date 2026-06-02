@@ -334,6 +334,62 @@ input::placeholder {
   background: #eff6ff;
 }
 
+.upload-monitor {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #d9f99d;
+  border-radius: 12px;
+  background: #f7fee7;
+}
+
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+}
+
+.monitor-grid p {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid #d9f99d;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.monitor-grid strong,
+.monitor-grid span {
+  display: block;
+}
+
+.monitor-grid strong {
+  color: #166534;
+  font-size: 1.25rem;
+}
+
+.monitor-grid span,
+.monitor-alerts span {
+  color: #475569;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.monitor-alerts {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.875rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.monitor-alerts li {
+  overflow-wrap: anywhere;
+  color: #365314;
+}
+
+.monitor-alerts span {
+  display: block;
+}
+
 .history-header,
 .selection-toolbar {
   align-items: center;
@@ -526,5 +582,9 @@ input::placeholder {
   .history-header,
   .selection-toolbar {
     align-items: stretch;
+  }
+
+  .monitor-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,9 +1,14 @@
 import {
   buildFilename,
+  checkUploadLimit,
   ensureSchema,
   getTranscribeModel,
+  hashClientIp,
   jsonResponse,
+  recordUploadAlert,
+  recordUploadEvent,
   transcribeAudio,
+  updateUploadEventStatus,
   type Env,
 } from '../_lib';
 
@@ -44,6 +49,48 @@ export const onRequestPost: PagesFunction<Env> = async (context: PagesContext) =
     }
 
     const filename = buildFilename(school, grade, className, studentName);
+    const ipHash = await hashClientIp(request);
+    const uploadLimit = await checkUploadLimit(env, ipHash, audio.size);
+
+    if (!uploadLimit.allowed) {
+      await recordUploadEvent(env, {
+        ipHash,
+        school,
+        grade,
+        className,
+        studentName,
+        filename,
+        fileSize: audio.size,
+        status: 'rejected',
+      });
+      await recordUploadAlert(env, uploadLimit.reason ?? 'upload_limit', ipHash, {
+        school,
+        grade,
+        className,
+        studentName,
+        filename,
+        fileSize: audio.size,
+        perIpHourCount: uploadLimit.perIpHourCount,
+        perIpDayCount: uploadLimit.perIpDayCount,
+        globalDayCount: uploadLimit.globalDayCount,
+        limit: uploadLimit.config,
+      });
+      return jsonResponse(
+        { ok: false, error: uploadLimit.message ?? 'アップロード数が多すぎます' },
+        429,
+      );
+    }
+
+    const uploadEventId = await recordUploadEvent(env, {
+      ipHash,
+      school,
+      grade,
+      className,
+      studentName,
+      filename,
+      fileSize: audio.size,
+      status: 'accepted',
+    });
     const model = getTranscribeModel(env);
     const audioKey = crypto.randomUUID() + '.mp3';
 
@@ -58,6 +105,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: PagesContext) =
       transcript = await transcribeAudio(env, audio, audio.name || 'audio.mp3');
     } catch (error) {
       await env.AUDIO.delete(audioKey);
+      await updateUploadEventStatus(env, uploadEventId, 'failed');
       throw error;
     }
 
@@ -68,6 +116,8 @@ export const onRequestPost: PagesFunction<Env> = async (context: PagesContext) =
     )
       .bind(school, grade, className, studentName, filename, transcript, audioKey, model)
       .first<{ id: number }>();
+
+    await updateUploadEventStatus(env, uploadEventId, 'completed');
 
     return jsonResponse({
       ok: true,

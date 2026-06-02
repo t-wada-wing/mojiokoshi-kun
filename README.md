@@ -33,7 +33,14 @@ npm install
 OPENAI_API_KEY=sk-...
 DOWNLOAD_PASSCODE=taichi
 TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
+UPLOAD_MAX_PER_IP_HOUR=12
+UPLOAD_MAX_PER_IP_DAY=40
+UPLOAD_MAX_GLOBAL_DAY=150
+UPLOAD_MAX_FILE_MB=25
 ```
+
+アップロード監視は、上記の上限を超えると OpenAI API を呼ぶ前に遮断し、`/download`
+の管理画面に異常検知として表示します。
 
 ### 3. Cloudflare リソース
 

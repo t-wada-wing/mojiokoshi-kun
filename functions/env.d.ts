@@ -10,9 +10,8 @@ interface Env {
   UPLOAD_MAX_PER_IP_DAY?: string;
   UPLOAD_MAX_GLOBAL_DAY?: string;
   UPLOAD_MAX_FILE_MB?: string;
-  MAIL_API_KEY?: string;
-  MAIL_FROM?: string;
-  NOTIFY_EMAIL_TO?: string;
+  GAS_WEBHOOK_URL?: string;
+  GAS_WEBHOOK_SECRET?: string;
   APP_BASE_URL?: string;
 }
 

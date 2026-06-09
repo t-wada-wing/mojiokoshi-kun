@@ -8,9 +8,8 @@ export interface Env {
   UPLOAD_MAX_PER_IP_DAY?: string;
   UPLOAD_MAX_GLOBAL_DAY?: string;
   UPLOAD_MAX_FILE_MB?: string;
-  MAIL_API_KEY?: string;
-  MAIL_FROM?: string;
-  NOTIFY_EMAIL_TO?: string;
+  GAS_WEBHOOK_URL?: string;
+  GAS_WEBHOOK_SECRET?: string;
   APP_BASE_URL?: string;
 }
 
@@ -76,6 +75,7 @@ export async function ensureSchema(env: Env): Promise<void> {
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS upload_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transcript_id INTEGER,
       ip_hash TEXT NOT NULL,
       school TEXT,
       grade TEXT,
@@ -104,9 +104,16 @@ export async function ensureSchema(env: Env): Promise<void> {
     await env.DB.prepare(`ALTER TABLE transcripts ADD COLUMN downloaded_at TEXT`).run();
   }
 
+  const uploadEventColumns = await env.DB.prepare(`PRAGMA table_info(upload_events)`).all<{ name: string }>();
+  const hasTranscriptId = (uploadEventColumns.results ?? []).some((column) => column.name === 'transcript_id');
+  if (!hasTranscriptId) {
+    await env.DB.prepare(`ALTER TABLE upload_events ADD COLUMN transcript_id INTEGER`).run();
+  }
+
   await env.DB.batch([
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transcripts_school ON transcripts(school)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transcripts_downloaded_at ON transcripts(downloaded_at)`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_events_transcript_id ON upload_events(transcript_id)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_events_ip_created ON upload_events(ip_hash, created_at)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_events_created ON upload_events(created_at)`),
     env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_upload_alerts_created ON upload_alerts(created_at)`),
@@ -278,11 +285,17 @@ export async function updateUploadEventStatus(
   env: Env,
   id: number | undefined,
   status: UploadEventInput['status'],
+  transcriptId?: number,
 ): Promise<void> {
   if (!id) return;
 
-  await env.DB.prepare(`UPDATE upload_events SET status = ? WHERE id = ?`)
-    .bind(status, id)
+  const statement = transcriptId
+    ? env.DB.prepare(`UPDATE upload_events SET status = ?, transcript_id = ? WHERE id = ?`)
+        .bind(status, transcriptId, id)
+    : env.DB.prepare(`UPDATE upload_events SET status = ? WHERE id = ?`)
+        .bind(status, id);
+
+  await statement
     .run();
 }
 
@@ -374,29 +387,8 @@ export interface UploadNotificationInput {
   filename: string;
 }
 
-export function getNotifyRecipients(env: Env): string[] {
-  const raw = env.NOTIFY_EMAIL_TO?.trim();
-  if (!raw) return [];
-
-  return raw
-    .split(',')
-    .map((email) => email.trim())
-    .filter(Boolean);
-}
-
 export function isMailConfigured(env: Env): boolean {
-  return Boolean(
-    env.MAIL_API_KEY?.trim() && env.MAIL_FROM?.trim() && getNotifyRecipients(env).length > 0,
-  );
-}
-
-function parseMailFrom(from: string): { email: string; name?: string } {
-  const match = from.match(/^(.+?)\s*<([^>]+)>$/);
-  if (match) {
-    return { name: match[1].trim(), email: match[2].trim() };
-  }
-
-  return { email: from };
+  return Boolean(env.GAS_WEBHOOK_URL?.trim() && env.GAS_WEBHOOK_SECRET?.trim());
 }
 
 export async function sendUploadNotification(
@@ -405,46 +397,32 @@ export async function sendUploadNotification(
 ): Promise<void> {
   if (!isMailConfigured(env)) return;
 
-  const recipients = getNotifyRecipients(env);
   const adminUrl = env.APP_BASE_URL?.trim()
     ? `${env.APP_BASE_URL.replace(/\/$/, '')}/download`
     : undefined;
 
-  const lines = [
-    '新しい音声アップロードが完了しました。',
-    '',
-    `学校: ${input.school}`,
-    `学年: ${input.grade}`,
-    `クラス: ${input.className}`,
-    `生徒: ${input.studentName}`,
-    `ファイル: ${input.filename}`,
-  ];
-
-  if (input.transcriptId) {
-    lines.push(`記録ID: ${input.transcriptId}`);
-  }
-
-  if (adminUrl) {
-    lines.push('', `管理画面: ${adminUrl}`);
-  }
-
   const body = JSON.stringify({
-    personalizations: [{ to: recipients.map((email) => ({ email })) }],
-    from: parseMailFrom(env.MAIL_FROM!.trim()),
-    subject: `[文字起こしくん] ${input.school} / ${input.studentName}`,
-    content: [{ type: 'text/plain', value: lines.join('\n') }],
+    secret: env.GAS_WEBHOOK_SECRET,
+    transcriptId: input.transcriptId,
+    school: input.school,
+    grade: input.grade,
+    className: input.className,
+    studentName: input.studentName,
+    filename: input.filename,
+    adminUrl,
   });
 
   let response: Response;
+  let responseText = '';
   try {
-    response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    response = await fetch(env.GAS_WEBHOOK_URL!.trim(), {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${env.MAIL_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body,
     });
+    responseText = await response.text();
   } catch (error) {
     console.error('Upload notification failed:', error);
     await recordMailFailure(env, input, {
@@ -454,12 +432,29 @@ export async function sendUploadNotification(
   }
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Upload notification failed:', response.status, errorText);
+    console.error('Upload notification failed:', response.status, responseText);
     await recordMailFailure(env, input, {
       status: response.status,
-      message: errorText.slice(0, 500),
+      message: responseText.slice(0, 500),
     });
+    return;
+  }
+
+  if (responseText) {
+    try {
+      const data = JSON.parse(responseText) as { ok?: boolean; error?: string };
+      if (data.ok === false) {
+        console.error('Upload notification failed:', data.error ?? responseText);
+        await recordMailFailure(env, input, {
+          message: (data.error ?? responseText).slice(0, 500),
+        });
+      }
+    } catch {
+      console.error('Upload notification returned non-JSON response:', responseText.slice(0, 500));
+      await recordMailFailure(env, input, {
+        message: responseText.slice(0, 500),
+      });
+    }
   }
 }
 
@@ -470,6 +465,7 @@ async function recordMailFailure(
 ): Promise<void> {
   try {
     await recordUploadAlert(env, 'mail_failed', null, {
+      provider: 'gas',
       transcriptId: input.transcriptId,
       school: input.school,
       grade: input.grade,

@@ -136,7 +136,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: PagesContext) =
       .bind(school, grade, className, studentName, filename, transcript, audioKey, model)
       .first<{ id: number }>();
 
-    await updateUploadEventStatus(env, uploadEventId, 'completed');
+    await updateUploadEventStatus(env, uploadEventId, 'completed', result?.id);
 
     context.waitUntil(
       sendUploadNotification(env, {

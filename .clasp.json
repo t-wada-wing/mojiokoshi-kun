@@ -1,0 +1,16 @@
+{
+  "scriptId": "1uW0iAqERlMEqLtsKqAQoDL4EWaZtla6ts3lor2HE0CAmp-b_aHo7yM0a",
+  "rootDir": "../../../../../tmp/moji-gas.Mlyp3W",
+  "scriptExtensions": [
+    ".js",
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [],
+  "skipSubdirectories": false
+}

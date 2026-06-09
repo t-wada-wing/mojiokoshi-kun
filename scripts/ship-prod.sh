@@ -92,7 +92,7 @@ sync_pages_secret() {
   printf '%s' "$value" | npx wrangler pages secret put "$key" --project-name="$PROJECT_NAME"
 }
 
-for secret_name in DOWNLOAD_PASSCODE MAIL_API_KEY MAIL_FROM NOTIFY_EMAIL_TO APP_BASE_URL; do
+for secret_name in DOWNLOAD_PASSCODE GAS_WEBHOOK_URL GAS_WEBHOOK_SECRET APP_BASE_URL; do
   sync_pages_secret "$secret_name"
 done
 

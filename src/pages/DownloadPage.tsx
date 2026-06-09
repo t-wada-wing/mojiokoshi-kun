@@ -39,6 +39,10 @@ function formatDateTime(value: string | null | undefined): string {
   }).format(date);
 }
 
+function dateTimeValue(value: string | null | undefined): number {
+  return parseServerDate(value)?.getTime() ?? 0;
+}
+
 function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024)}KB`;
   return `${Math.floor(value / 1024 / 1024)}MB`;
@@ -103,6 +107,43 @@ async function startDownload(href: string, fallbackFilename: string): Promise<vo
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
 }
 
+interface CombinedHistoryRow {
+  key: string;
+  upload?: UploadEventItem;
+  download?: DownloadEventItem;
+  school: string;
+  grade: string | null;
+  className: string | null;
+  studentName: string;
+  filename: string;
+  fileSize?: number;
+  sortTime: number;
+}
+
+function normalizeHistoryPart(value: string | null | undefined): string {
+  return value?.trim() ?? '';
+}
+
+function uploadHistoryKey(event: UploadEventItem): string {
+  return [
+    event.school,
+    event.grade,
+    event.class,
+    event.student_name,
+    event.filename,
+  ].map(normalizeHistoryPart).join('\u001f');
+}
+
+function downloadHistoryKey(event: DownloadEventItem): string {
+  return [
+    event.school,
+    event.grade,
+    event.class,
+    event.student_name,
+    event.filename,
+  ].map(normalizeHistoryPart).join('\u001f');
+}
+
 export default function DownloadPage() {
   const [passcode, setPasscode] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
@@ -125,6 +166,71 @@ export default function DownloadPage() {
     () => records.filter((record) => selectedIds.has(record.id)),
     [records, selectedIds],
   );
+
+  const combinedHistory = useMemo<CombinedHistoryRow[]>(() => {
+    const rows: CombinedHistoryRow[] = [];
+    const byTranscriptId = new Map<number, CombinedHistoryRow>();
+    const byFallbackKey = new Map<string, CombinedHistoryRow[]>();
+
+    uploadEvents.forEach((event) => {
+      const fallbackKey = uploadHistoryKey(event);
+      const row: CombinedHistoryRow = {
+        key: event.transcript_id ? `transcript-${event.transcript_id}` : `upload-${event.id}`,
+        upload: event,
+        school: event.school ?? '不明',
+        grade: event.grade,
+        className: event.class,
+        studentName: event.student_name ?? '不明',
+        filename: event.filename ?? '不明',
+        fileSize: event.file_size,
+        sortTime: dateTimeValue(event.created_at),
+      };
+
+      rows.push(row);
+      if (event.transcript_id) {
+        byTranscriptId.set(event.transcript_id, row);
+      }
+
+      const fallbackRows = byFallbackKey.get(fallbackKey) ?? [];
+      fallbackRows.push(row);
+      byFallbackKey.set(fallbackKey, fallbackRows);
+    });
+
+    downloadEvents.forEach((event) => {
+      let row = byTranscriptId.get(event.id);
+      if (!row) {
+        const fallbackRows = byFallbackKey.get(downloadHistoryKey(event)) ?? [];
+        const eventCreatedAt = dateTimeValue(event.created_at);
+        row = fallbackRows
+          .filter((candidate) => !candidate.download)
+          .sort(
+            (a, b) =>
+              Math.abs(eventCreatedAt - dateTimeValue(a.upload?.created_at)) -
+              Math.abs(eventCreatedAt - dateTimeValue(b.upload?.created_at)),
+          )[0];
+      }
+
+      if (!row) {
+        row = {
+          key: `download-${event.id}`,
+          school: event.school,
+          grade: event.grade,
+          className: event.class,
+          studentName: event.student_name,
+          filename: event.filename,
+          sortTime: dateTimeValue(event.downloaded_at),
+        };
+        rows.push(row);
+      }
+
+      row.download = event;
+      row.sortTime = Math.max(row.sortTime, dateTimeValue(event.downloaded_at));
+    });
+
+    return rows
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 50);
+  }, [downloadEvents, uploadEvents]);
 
   const visibleRecords = useMemo(
     () =>
@@ -432,76 +538,64 @@ export default function DownloadPage() {
       ) : null}
       {monitorError ? <p className="field-error">{monitorError}</p> : null}
 
-      <div className="history-grid">
-        <section className="upload-history" aria-live="polite">
-          <div className="history-header">
-            <h3>アップロード完了履歴</h3>
-            <span>
-              {school ? `${school} / ` : '全スクール / '}
-              {uploadEvents.length > 0 ? `${uploadEvents.length}件表示` : '履歴なし'}
-            </span>
-          </div>
-          {uploadEvents.length > 0 ? (
-            <ol className="history-list">
-              {uploadEvents.map((event) => (
-                <li key={event.id}>
-                  <div className="history-main">
-                    <span className={`history-status upload-status-${event.status}`}>
-                      {uploadStatusLabel(event.status)}
-                    </span>
-                    <span>
-                      {event.school ? `${event.school} / ` : ''}
-                      {event.student_name ?? '不明'} / {event.filename ?? '不明'}
-                    </span>
-                  </div>
-                  <div className="history-meta">
-                    <time>{formatDateTime(event.created_at)}</time>
-                    {event.grade && event.class ? (
-                      <span>
-                        {event.grade} / {event.class}
+      <section className="history-panel" aria-live="polite">
+        <div className="history-header">
+          <h3>アップロード完了 / ダウンロード実行履歴</h3>
+          <span>
+            {school ? `${school} / ` : '全スクール / '}
+            {combinedHistory.length > 0 ? `${combinedHistory.length}件表示` : '履歴なし'}
+          </span>
+        </div>
+        {combinedHistory.length > 0 ? (
+          <div className="history-table" role="table" aria-label="アップロード完了とダウンロード実行履歴">
+            <div className="history-table-row history-table-head" role="row">
+              <span role="columnheader">No.</span>
+              <span role="columnheader">生徒 / ファイル</span>
+              <span role="columnheader">アップロード完了</span>
+              <span role="columnheader">ダウンロード実行</span>
+            </div>
+            {combinedHistory.map((row, index) => (
+              <div className="history-table-row" role="row" key={row.key}>
+                <span className="history-number" role="cell">{index + 1}.</span>
+                <div className="history-person" role="cell">
+                  <strong>
+                    {row.school} / {row.studentName}
+                  </strong>
+                  <span>{row.filename}</span>
+                  <small>
+                    {[row.grade, row.className].filter(Boolean).join(' / ')}
+                    {row.fileSize ? `　${formatBytes(row.fileSize)}` : ''}
+                  </small>
+                </div>
+                <div className="history-state-cell" role="cell">
+                  {row.upload ? (
+                    <>
+                      <span className={`history-status upload-status-${row.upload.status}`}>
+                        {uploadStatusLabel(row.upload.status)}
                       </span>
-                    ) : null}
-                    <span>{formatBytes(event.file_size)}</span>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="field-hint">アップロード完了履歴はまだありません。</p>
-          )}
-        </section>
-        <section className="download-history" aria-live="polite">
-          <div className="history-header">
-            <h3>ダウンロード実行履歴</h3>
-            <span>
-              {school ? `${school} / ` : '全スクール / '}
-              {downloadEvents.length > 0 ? `${downloadEvents.length}件表示` : '履歴なし'}
-            </span>
+                      <time>{formatDateTime(row.upload.created_at)}</time>
+                    </>
+                  ) : (
+                    <span className="history-status history-missing">未記録</span>
+                  )}
+                </div>
+                <div className="history-state-cell" role="cell">
+                  {row.download ? (
+                    <>
+                      <span className="history-status download-executed">DL済</span>
+                      <time>{formatDateTime(row.download.downloaded_at)}</time>
+                    </>
+                  ) : (
+                    <span className="history-status download-pending">未DL</span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-          {downloadEvents.length > 0 ? (
-            <ol className="history-list">
-              {downloadEvents.map((event) => (
-                <li key={event.id}>
-                  <div className="history-main">
-                    <span className="history-status download-executed">DL済</span>
-                    <span>
-                      {event.school} / {event.student_name} / {event.filename}
-                    </span>
-                  </div>
-                  <div className="history-meta">
-                    <time>{formatDateTime(event.downloaded_at)}</time>
-                    <span>
-                      {event.grade} / {event.class}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="field-hint">ダウンロード実行履歴はまだありません。</p>
-          )}
-        </section>
-      </div>
+        ) : (
+          <p className="field-hint">アップロード完了履歴 / ダウンロード実行履歴はまだありません。</p>
+        )}
+      </section>
       {uploadEventsError ? <p className="field-error">{uploadEventsError}</p> : null}
       {downloadEventsError ? <p className="field-error">{downloadEventsError}</p> : null}
 

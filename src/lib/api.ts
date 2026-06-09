@@ -180,6 +180,7 @@ export interface UploadMonitorData {
 
 export interface UploadEventItem {
   id: number;
+  transcript_id: number | null;
   school: string | null;
   grade: string | null;
   class: string | null;

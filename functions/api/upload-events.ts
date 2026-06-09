@@ -7,6 +7,7 @@ interface PagesContext {
 
 interface UploadEventRow {
   id: number;
+  transcript_id: number | null;
   school: string | null;
   grade: string | null;
   class: string | null;
@@ -46,7 +47,7 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
 
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
     const query = env.DB.prepare(
-      `SELECT id, school, grade, class, student_name, filename, file_size, status, created_at
+      `SELECT id, transcript_id, school, grade, class, student_name, filename, file_size, status, created_at
        FROM upload_events
        ${whereClause}
        ORDER BY created_at DESC, id DESC

@@ -3,7 +3,7 @@ interface Props {
   title: string;
   message: string;
   onClose: () => void;
-  variant?: 'success' | 'error';
+  variant?: 'success' | 'error' | 'info';
 }
 
 export default function ResultModal({

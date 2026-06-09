@@ -284,6 +284,20 @@ input::placeholder {
   font-size: 0.875rem;
 }
 
+.download-overlay-card {
+  text-align: center;
+}
+
+.download-spinner {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1rem;
+  border: 5px solid #dbeafe;
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  animation: download-spinner 0.9s linear infinite;
+}
+
 .overlay-actions {
   margin-top: 1.25rem;
   display: flex;
@@ -300,6 +314,16 @@ input::placeholder {
 
 .modal-card.error h2 {
   color: #b91c1c;
+}
+
+.modal-card.info h2 {
+  color: #2563eb;
+}
+
+@keyframes download-spinner {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .section-header {

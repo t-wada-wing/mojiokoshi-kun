@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SCHOOLS } from '../constants';
+import ResultModal from '../components/ResultModal';
 import {
   deleteRecord,
   downloadAllZipUrl,
@@ -19,6 +20,7 @@ import {
 } from '../lib/api';
 
 const PASSCODE_STORAGE_KEY = 'transcribe-passcode';
+const NO_UNDOWNLOADED_MESSAGE = '未ダウンロードの記録はありません';
 
 function parseServerDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -121,6 +123,13 @@ interface CombinedHistoryRow {
   sortTime: number;
 }
 
+interface DownloadResultModal {
+  open: boolean;
+  title: string;
+  message: string;
+  variant: 'success' | 'error' | 'info';
+}
+
 function normalizeHistoryPart(value: string | null | undefined): string {
   return value?.trim() ?? '';
 }
@@ -162,6 +171,13 @@ export default function DownloadPage() {
   const [downloadEvents, setDownloadEvents] = useState<DownloadEventItem[]>([]);
   const [downloadEventsError, setDownloadEventsError] = useState('');
   const [showUndownloadedOnly, setShowUndownloadedOnly] = useState(false);
+  const [isUndownloadedDownloadRunning, setIsUndownloadedDownloadRunning] = useState(false);
+  const [downloadResultModal, setDownloadResultModal] = useState<DownloadResultModal>({
+    open: false,
+    title: '',
+    message: '',
+    variant: 'success',
+  });
 
   const selectedRecords = useMemo(
     () => records.filter((record) => selectedIds.has(record.id)),
@@ -255,6 +271,17 @@ export default function DownloadPage() {
       void loadDownloadEvents(saved);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isUndownloadedDownloadRunning) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isUndownloadedDownloadRunning]);
 
   const loadUploadMonitor = async (targetPasscode = passcode) => {
     try {
@@ -417,11 +444,39 @@ export default function DownloadPage() {
   };
 
   const handleDownloadUndownloaded = async () => {
-    await runDownload(
-      downloadUndownloadedZipUrl(passcode),
-      '未DL_全スクール文字起こし.zip',
-      '未DLファイルのダウンロードが完了しました',
-    );
+    setActionMessage('');
+    setIsUndownloadedDownloadRunning(true);
+
+    try {
+      await startDownload(
+        downloadUndownloadedZipUrl(passcode),
+        '未DL_全スクール文字起こし.zip',
+      );
+      await refreshAfterDownload('未DLファイルのダウンロードが完了しました');
+      setDownloadResultModal({
+        open: true,
+        title: '未DLファイルをダウンロードしました',
+        message: '対象ファイルをDL済みに更新しました。',
+        variant: 'success',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'ダウンロードに失敗しました';
+      const isEmpty = message === NO_UNDOWNLOADED_MESSAGE;
+      if (isEmpty) {
+        await refreshAfterDownload('');
+      }
+      setActionMessage(isEmpty ? '' : message);
+      setDownloadResultModal({
+        open: true,
+        title: isEmpty ? '未DLファイルはありません' : 'ダウンロードに失敗しました',
+        message: isEmpty
+          ? '現在、未ダウンロードの文字起こしファイルはありません。'
+          : message,
+        variant: isEmpty ? 'info' : 'error',
+      });
+    } finally {
+      setIsUndownloadedDownloadRunning(false);
+    }
   };
 
   const handleDownloadSelected = async () => {
@@ -484,8 +539,11 @@ export default function DownloadPage() {
             type="button"
             className="primary-button"
             onClick={() => void handleDownloadUndownloaded()}
+            disabled={isUndownloadedDownloadRunning}
           >
-            未DLの文字起こしファイルのみダウンロード
+            {isUndownloadedDownloadRunning
+              ? '未DLファイルを準備中...'
+              : '未DLの文字起こしファイルのみダウンロード'}
           </button>
           <button
             type="button"
@@ -757,6 +815,41 @@ export default function DownloadPage() {
       {school && !loading && records.length > 0 && visibleRecords.length === 0 && !listError ? (
         <p className="field-hint">未ダウンロードの記録はありません。</p>
       ) : null}
+
+      {isUndownloadedDownloadRunning ? (
+        <div
+          className="overlay overlay-blocking"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="download-overlay-title"
+          onWheel={(event) => event.preventDefault()}
+        >
+          <div className="overlay-card download-overlay-card">
+            <div className="download-spinner" aria-hidden="true" />
+            <h2 id="download-overlay-title" className="overlay-title">
+              未DLファイルを準備しています
+            </h2>
+            <p>
+              全スクールの未ダウンロード文字起こしをまとめています。
+              画面を閉じずにお待ちください。
+            </p>
+            <p className="overlay-note">ZIPの作成とダウンロード履歴の更新を行っています。</p>
+          </div>
+        </div>
+      ) : null}
+
+      <ResultModal
+        open={downloadResultModal.open}
+        title={downloadResultModal.title}
+        message={downloadResultModal.message}
+        variant={downloadResultModal.variant}
+        onClose={() =>
+          setDownloadResultModal((current) => ({
+            ...current,
+            open: false,
+          }))
+        }
+      />
     </section>
   );
 }

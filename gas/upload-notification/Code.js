@@ -49,6 +49,14 @@ function setWebhookSecretForSetup(secret) {
   return { ok: true };
 }
 
+function authorizeForSetup() {
+  return {
+    ok: true,
+    hasSecret: Boolean(PropertiesService.getScriptProperties().getProperty('GAS_WEBHOOK_SECRET')),
+    remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+  };
+}
+
 function parsePayload_(e) {
   if (!e || !e.postData || !e.postData.contents) {
     throw new Error('Request body is empty');

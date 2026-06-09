@@ -4,6 +4,7 @@ import {
   deleteRecord,
   downloadAllZipUrl,
   downloadSelectedZipUrl,
+  downloadUndownloadedZipUrl,
   downloadUrl,
   downloadZipUrl,
   fetchDownloadEvents,
@@ -415,6 +416,14 @@ export default function DownloadPage() {
     }
   };
 
+  const handleDownloadUndownloaded = async () => {
+    await runDownload(
+      downloadUndownloadedZipUrl(passcode),
+      '未DL_全スクール文字起こし.zip',
+      '未DLファイルのダウンロードが完了しました',
+    );
+  };
+
   const handleDownloadSelected = async () => {
     if (selectedRecords.length === 0) {
       setActionMessage('ダウンロードするファイルを選択してください');
@@ -470,27 +479,36 @@ export default function DownloadPage() {
           <h2>ダウンロード / 管理</h2>
           <p className="lead">スクールを選択して文字起こし結果を確認・ダウンロードできます。</p>
         </div>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => {
-            sessionStorage.removeItem(PASSCODE_STORAGE_KEY);
-            setAuthenticated(false);
-            setPasscode('');
-            setSchool('');
-            setRecords([]);
-            setSelectedIds(new Set());
-            setUploadMonitor(null);
-            setMonitorError('');
-            setUploadEvents([]);
-            setUploadEventsError('');
-            setDownloadEvents([]);
-            setDownloadEventsError('');
-            setShowUndownloadedOnly(false);
-          }}
-        >
-          ログアウト
-        </button>
+        <div className="section-actions">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void handleDownloadUndownloaded()}
+          >
+            未DLの文字起こしファイルのみダウンロード
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              sessionStorage.removeItem(PASSCODE_STORAGE_KEY);
+              setAuthenticated(false);
+              setPasscode('');
+              setSchool('');
+              setRecords([]);
+              setSelectedIds(new Set());
+              setUploadMonitor(null);
+              setMonitorError('');
+              setUploadEvents([]);
+              setUploadEventsError('');
+              setDownloadEvents([]);
+              setDownloadEventsError('');
+              setShowUndownloadedOnly(false);
+            }}
+          >
+            ログアウト
+          </button>
+        </div>
       </div>
 
       {uploadMonitor ? (

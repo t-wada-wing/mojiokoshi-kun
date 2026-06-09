@@ -310,6 +310,13 @@ input::placeholder {
   margin-bottom: 1rem;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
 .toolbar {
   margin: 1rem 0;
 }
@@ -663,6 +670,11 @@ input::placeholder {
     align-items: stretch;
   }
 
+  .section-actions {
+    width: 100%;
+  }
+
+  .section-header .primary-button,
   .section-header .secondary-button {
     width: 100%;
   }

@@ -91,6 +91,7 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
   const ids = parseIds(url.searchParams.get('ids'));
   const school = url.searchParams.get('school')?.trim();
   const all = url.searchParams.get('all');
+  const undownloaded = url.searchParams.get('undownloaded');
 
   try {
     await ensureSchema(env);
@@ -170,6 +171,27 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
       return response;
     }
 
+    if (undownloaded) {
+      const result = await env.DB.prepare(
+        `SELECT id, school, filename, transcript
+         FROM transcripts
+         WHERE downloaded_at IS NULL
+         ORDER BY school ASC, created_at ASC, id ASC`,
+      ).all<Pick<TranscriptRecord, 'id' | 'school' | 'filename' | 'transcript'>>();
+
+      const records = result.results ?? [];
+      if (records.length === 0) {
+        return jsonResponse({ ok: false, error: '未ダウンロードの記録はありません' }, 404);
+      }
+
+      const response = buildZipResponse(records, '未DL_全スクール文字起こし.zip', true);
+      await markDownloaded(
+        env,
+        records.map((record) => record.id),
+      );
+      return response;
+    }
+
     if (all) {
       const result = await env.DB.prepare(
         `SELECT id, school, filename, transcript
@@ -190,7 +212,7 @@ export const onRequestGet: PagesFunction<Env> = async (context: PagesContext) =>
       return response;
     }
 
-    return jsonResponse({ ok: false, error: 'id / ids / school / all のいずれかを指定してください' }, 400);
+    return jsonResponse({ ok: false, error: 'id / ids / school / undownloaded / all のいずれかを指定してください' }, 400);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ダウンロードに失敗しました';
     return jsonResponse({ ok: false, error: message }, 500);

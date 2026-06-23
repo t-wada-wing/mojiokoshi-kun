@@ -351,11 +351,7 @@ export async function transcribeAudio(
   }
 
   const data = (await response.json()) as { text?: string };
-  if (!data.text) {
-    throw new Error('文字起こし結果が空でした');
-  }
-
-  return data.text;
+  return data.text ?? '';
 }
 
 export interface TranscriptionChunkInput {
@@ -375,7 +371,12 @@ export async function transcribeAudioInChunks(
     if (trimmed) parts.push(trimmed);
   }
 
-  return parts.join('\n');
+  const transcript = parts.join('\n');
+  if (!transcript) {
+    throw new Error('文字起こし結果が空でした');
+  }
+
+  return transcript;
 }
 
 export interface UploadNotificationInput {

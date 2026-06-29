@@ -37,8 +37,6 @@ export default function UploadPage() {
   const [modalMessage, setModalMessage] = useState('');
   const [modalVariant, setModalVariant] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
-  const broadFileInputRef = useRef<HTMLInputElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const previewFilename = useMemo(() => {
@@ -248,38 +246,32 @@ export default function UploadPage() {
 
           <div className="form-field">
             <span>音声ファイル</span>
-            <input
-              ref={audioFileInputRef}
-              className="hidden-file-input"
-              type="file"
-              accept={AUDIO_FILE_ACCEPT}
-              onChange={handleFileInputChange}
-              disabled={isSubmitting}
-            />
-            <input
-              ref={broadFileInputRef}
-              className="hidden-file-input"
-              type="file"
-              onChange={handleFileInputChange}
-              disabled={isSubmitting}
-            />
             <div className="file-picker-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => audioFileInputRef.current?.click()}
-                disabled={isSubmitting}
+              <label
+                className={`secondary-button file-picker-button${isSubmitting ? ' disabled' : ''}`}
               >
                 音声から選択
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => broadFileInputRef.current?.click()}
-                disabled={isSubmitting}
+                <input
+                  className="file-picker-input"
+                  type="file"
+                  accept={AUDIO_FILE_ACCEPT}
+                  onChange={handleFileInputChange}
+                  disabled={isSubmitting}
+                  aria-label="音声から選択"
+                />
+              </label>
+              <label
+                className={`secondary-button file-picker-button${isSubmitting ? ' disabled' : ''}`}
               >
                 ファイルから選択
-              </button>
+                <input
+                  className="file-picker-input"
+                  type="file"
+                  onChange={handleFileInputChange}
+                  disabled={isSubmitting}
+                  aria-label="ファイルから選択"
+                />
+              </label>
             </div>
             {file ? <span className="field-hint">{file.name}</span> : null}
             {longAudioHint ? <span className="field-hint">{longAudioHint}</span> : null}

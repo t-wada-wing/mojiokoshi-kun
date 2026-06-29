@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
+  AUDIO_FILE_ACCEPT,
   CLASSES,
   GRADES,
   LONG_AUDIO_HINT_SECONDS,
@@ -7,8 +8,8 @@ import {
   SCHOOLS,
   buildFilename,
   formatDurationMinutes,
-  isUnsupportedAudioFile,
   isValidStudentName,
+  validateAudioFile,
 } from '../constants';
 import UploadOverlay from '../components/UploadOverlay';
 import ResultModal from '../components/ResultModal';
@@ -36,6 +37,8 @@ export default function UploadPage() {
   const [modalMessage, setModalMessage] = useState('');
   const [modalVariant, setModalVariant] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const broadFileInputRef = useRef<HTMLInputElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const previewFilename = useMemo(() => {
@@ -66,14 +69,12 @@ export default function UploadPage() {
       return;
     }
 
-    if (isUnsupportedAudioFile(selected.name)) {
-      setFileError(
-        'この音声形式(.amr/.3gp等)は対応していません。別の録音アプリでm4a/mp3形式で保存してください。',
-      );
-      return;
-    }
+    setFileError(validateAudioFile(selected));
+  };
 
-    setFileError('');
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileChange(event.target.files?.[0] ?? null);
+    event.target.value = '';
   };
 
   const resetForm = () => {
@@ -245,18 +246,45 @@ export default function UploadPage() {
             {nameError ? <span className="field-error">{nameError}</span> : null}
           </label>
 
-          <label>
-            音声ファイル
+          <div className="form-field">
+            <span>音声ファイル</span>
             <input
+              ref={audioFileInputRef}
+              className="hidden-file-input"
               type="file"
-              accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.webm,.mp4"
-              onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+              accept={AUDIO_FILE_ACCEPT}
+              onChange={handleFileInputChange}
               disabled={isSubmitting}
             />
+            <input
+              ref={broadFileInputRef}
+              className="hidden-file-input"
+              type="file"
+              onChange={handleFileInputChange}
+              disabled={isSubmitting}
+            />
+            <div className="file-picker-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => audioFileInputRef.current?.click()}
+                disabled={isSubmitting}
+              >
+                音声から選択
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => broadFileInputRef.current?.click()}
+                disabled={isSubmitting}
+              >
+                ファイルから選択
+              </button>
+            </div>
             {file ? <span className="field-hint">{file.name}</span> : null}
             {longAudioHint ? <span className="field-hint">{longAudioHint}</span> : null}
             {fileError ? <span className="field-error">{fileError}</span> : null}
-          </label>
+          </div>
 
           {previewFilename ? (
             <p className="filename-preview">保存ファイル名: {previewFilename}</p>

@@ -148,6 +148,46 @@ export function buildFilename(
   return raw.replace(/[\\/:*?"<>|]/g, '_');
 }
 
+const SUPPORTED_AUDIO_EXTENSIONS = [
+  '.mp3',
+  '.m4a',
+  '.mp4',
+  '.wav',
+  '.aac',
+  '.ogg',
+  '.webm',
+  '.opus',
+] as const;
+
+const UNSUPPORTED_AUDIO_EXTENSIONS = ['.amr', '.3gp', '.3gpp', '.awb'] as const;
+
+const UNSUPPORTED_AUDIO_MESSAGE =
+  'この音声形式(.amr/.3gp等)は対応していません。別の録音アプリでm4a/mp3形式で保存してください。';
+
+const INVALID_AUDIO_MESSAGE =
+  '音声ファイルを選択してください。対応形式: mp3 / m4a / mp4 / wav / aac / ogg / webm / opus';
+
+function hasExtension(filename: string, extensions: readonly string[]): boolean {
+  const lower = filename.toLowerCase();
+  return extensions.some((ext) => lower.endsWith(ext));
+}
+
+export function validateAudioUploadFile(file: File): string {
+  if (hasExtension(file.name, UNSUPPORTED_AUDIO_EXTENSIONS)) {
+    return UNSUPPORTED_AUDIO_MESSAGE;
+  }
+
+  if (hasExtension(file.name, SUPPORTED_AUDIO_EXTENSIONS)) {
+    return '';
+  }
+
+  if (file.type.toLowerCase().startsWith('audio/')) {
+    return '';
+  }
+
+  return INVALID_AUDIO_MESSAGE;
+}
+
 export function contentDisposition(filename: string): string {
   const encoded = encodeURIComponent(filename);
   return `attachment; filename*=UTF-8''${encoded}`;
@@ -494,6 +534,10 @@ export function collectAudioFilesFromFormData(formData: FormData): File[] {
       if (!(entry instanceof File) || entry.size === 0) {
         throw new Error(`音声チャンク ${i + 1} が不正です`);
       }
+      const validationError = validateAudioUploadFile(entry);
+      if (validationError) {
+        throw new Error(validationError);
+      }
       files.push(entry);
     }
     return files;
@@ -501,6 +545,10 @@ export function collectAudioFilesFromFormData(formData: FormData): File[] {
 
   const single = formData.get('audio');
   if (single instanceof File && single.size > 0) {
+    const validationError = validateAudioUploadFile(single);
+    if (validationError) {
+      throw new Error(validationError);
+    }
     return [single];
   }
 

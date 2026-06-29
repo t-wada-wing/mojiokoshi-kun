@@ -28,7 +28,27 @@ export type School = (typeof SCHOOLS)[number];
 export type Grade = (typeof GRADES)[number];
 export type ClassName = (typeof CLASSES)[number];
 
+export const AUDIO_FILE_ACCEPT =
+  'audio/*,.mp3,.m4a,.wav,.aac,.ogg,.webm,.mp4,.opus';
+
+export const SUPPORTED_AUDIO_EXTENSIONS = [
+  '.mp3',
+  '.m4a',
+  '.mp4',
+  '.wav',
+  '.aac',
+  '.ogg',
+  '.webm',
+  '.opus',
+] as const;
+
 export const UNSUPPORTED_EXTENSIONS = ['.amr', '.3gp', '.3gpp', '.awb'] as const;
+
+const UNSUPPORTED_AUDIO_MESSAGE =
+  'この音声形式(.amr/.3gp等)は対応していません。別の録音アプリでm4a/mp3形式で保存してください。';
+
+const INVALID_AUDIO_MESSAGE =
+  '音声ファイルを選択してください。対応形式: mp3 / m4a / mp4 / wav / aac / ogg / webm / opus';
 
 /** OpenAI 文字起こし用の内部分割（秒）。API 上限 25 分より短く取る */
 export const MAX_TRANSCRIBE_CHUNK_SECONDS = 20 * 60;
@@ -64,4 +84,25 @@ export function buildFilename(
 export function isUnsupportedAudioFile(filename: string): boolean {
   const lower = filename.toLowerCase();
   return UNSUPPORTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function hasSupportedAudioExtension(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return SUPPORTED_AUDIO_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+export function validateAudioFile(file: { name: string; type?: string }): string {
+  if (isUnsupportedAudioFile(file.name)) {
+    return UNSUPPORTED_AUDIO_MESSAGE;
+  }
+
+  if (hasSupportedAudioExtension(file.name)) {
+    return '';
+  }
+
+  if (file.type?.toLowerCase().startsWith('audio/')) {
+    return '';
+  }
+
+  return INVALID_AUDIO_MESSAGE;
 }

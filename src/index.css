@@ -57,6 +57,13 @@ select {
   opacity: 0.85;
 }
 
+.app-version {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
 .app-nav {
   display: flex;
   align-items: center;

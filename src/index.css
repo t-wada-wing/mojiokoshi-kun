@@ -260,6 +260,55 @@ input::placeholder {
   color: #b91c1c;
 }
 
+.update-toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: min(420px, calc(100vw - 2rem));
+  padding: 0.875rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.2);
+  color: #172554;
+}
+
+.update-toast div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.update-toast strong {
+  font-size: 0.95rem;
+}
+
+.update-toast span {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.update-button {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  padding: 0.625rem 0.875rem;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.update-button:disabled {
+  background: #94a3b8;
+  cursor: progress;
+}
+
 .field-error {
   color: #dc2626;
   font-size: 0.875rem;
@@ -753,6 +802,13 @@ input::placeholder {
   .section-header .primary-button,
   .section-header .secondary-button {
     width: 100%;
+  }
+
+  .update-toast {
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
   }
 
   .record-item {

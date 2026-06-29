@@ -1,7 +1,14 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
+import UpdateAvailableToast from './components/UpdateAvailableToast';
 import UploadPage from './pages/UploadPage';
 import DownloadPage from './pages/DownloadPage';
 import { APP_UPDATED_DATE, APP_VERSION } from './appInfo';
+import {
+  applyPwaUpdate,
+  registerPwaUpdateListener,
+  subscribeToPwaUpdates,
+} from './lib/pwaUpdate';
 
 function navClassName(baseClassName: string) {
   return ({ isActive }: { isActive: boolean }) =>
@@ -9,6 +16,24 @@ function navClassName(baseClassName: string) {
 }
 
 export default function App() {
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPwaUpdates(setUpdateAvailable);
+    registerPwaUpdateListener();
+    return unsubscribe;
+  }, []);
+
+  const handleUpdate = async () => {
+    setUpdating(true);
+    try {
+      await applyPwaUpdate();
+    } catch {
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -32,6 +57,9 @@ export default function App() {
           <Route path="/download" element={<DownloadPage />} />
         </Routes>
       </main>
+      {updateAvailable ? (
+        <UpdateAvailableToast updating={updating} onUpdate={() => void handleUpdate()} />
+      ) : null}
     </div>
   );
 }

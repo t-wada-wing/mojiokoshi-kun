@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      injectRegister: false,
+      registerType: 'prompt',
       includeAssets: ['icon.svg'],
       manifest: {
         name: '文字起こしくん',
